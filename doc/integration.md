@@ -223,15 +223,15 @@ the March C- memory BIST.
 
 ## 8. Physical integration (RTL2GDS)
 
-![Hardened `cdriscv_32s_20_subsys_hard` — 1330 x 2521 um on IHP SG13G2, the
-signed-off 25 MHz configuration. The two yellow bands are the TCM macros
-(I-TCM bottom, D-TCM top): two wide `2048x32` data parts and one
-narrower `4096x8` parity part each. The standard-cell logic is the
+<img src="img/cdriscv_32s_20_subsys_gds.png" width="50%"
+     alt="Hardened cdriscv_32s_20_subsys_hard, 1330 x 2521 um on IHP SG13G2">
+
+*Hardened `cdriscv_32s_20_subsys_hard` — 1330 × 2521 µm on IHP SG13G2,
+variant 1's signed-off 25 MHz configuration. The two yellow bands are the
+TCM macros (I-TCM bottom, D-TCM top): two wide `2048x32` data parts and
+one narrower `4096x8` parity part each. The standard-cell logic is the
 purple field between them, and the vertical blue strips down both edges
-are the power straps. The die is exactly one macro row wide plus 179 um
-of margin, which is what makes it 7.1 % smaller than the square that
-holds the same
-logic.](img/cdriscv_32s_20_subsys_gds.png)
+are the power straps.*
 
 Numbers below are from the signed-off main configuration,
 `flow/config.json`. The earlier square floorplan
