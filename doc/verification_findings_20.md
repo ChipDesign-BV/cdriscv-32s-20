@@ -296,7 +296,38 @@ deliberately halfword-aligned target and require that it runs and does
 *not* trap. Asserting the absence of an exception is the only honest
 form of that test once the exception cannot occur.
 
-## 10. Two lint findings fixed rather than waived
+## 10. A 10⁹ campaign that does not close O2
+
+The marathon reached its target: **1 015 491 890 instructions over
+27 000 programs in 54 batches, every batch 500/500, zero mismatches.**
+The per-batch counts sum exactly to the cumulative, so the log is
+internally consistent.
+
+It still does not close O2, and the reason is worth stating because it
+is easy to miss when a number that large lands.
+
+Batch 0 ran at 14:53. Zca/Zcb went into the fetch path at 18:31 and the
+single-cycle multiplier at 19:38; the co-simulation runner was rebuilt
+at 19:35. So roughly the first twenty batches exercised the
+bitmanip-only core and the remainder exercised the compressed one. The
+total is an accumulation across two designs, and **no single design was
+run for 10⁹ instructions.**
+
+An objective is a statement about a design, not about a tool's uptime.
+Variant 1's O2 was a clean campaign against frozen RTL and this has to
+match it, so the campaign was restarted from zero against a runner
+rebuilt from the current RTL, and O2 stays open until it completes end
+to end.
+
+The general form is worth keeping: **a long-running campaign is only
+evidence for the revision it ran against.** If the design changes under
+it, the counter keeps going up and the evidence does not. Check the
+first batch timestamp against the RTL history before quoting any
+accumulated total — the previous log is kept as
+`build/o2_marathon_prev_rtl.log` rather than deleted, because what it
+covers is real, it just is not this design.
+
+## 11. Two lint findings fixed rather than waived
 
 - The PMP TOR lower bound for region 0 is a constant zero, so
   `req_addr >= 0` is always true and Verilator flagged the comparison as

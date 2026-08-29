@@ -102,14 +102,28 @@ have signed off both.
 
 Largest first.
 
-1. **Co-simulation against Spike is running, not finished.** The harness
-   is retargeted to `rv32im_zba_zbb_zbs_zicsr_zifencei` and the random
-   program generator now emits Zba/Zbb/Zbs, so the comparison covers the
-   new instructions. Results so far: the directed ISA program matches
-   (208 instructions), and 25 random programs match over 191 778
-   instructions, with and without 35 % memory back-pressure. The 10⁹
-   marathon (`scripts/o2_marathon.sh`) is grinding; **variant 1's O2
-   objective is not met here until it completes.**
+1. **O2 is NOT met, despite a completed 10⁹ campaign.** The marathon
+   reached its target — 1 015 491 890 instructions over 27 000 programs
+   in 54 batches, every batch 500/500, zero mismatches — but it spans
+   RTL revisions and therefore proves nothing about the design that
+   exists now.
+
+   Batch 0 ran at 14:53. Zca/Zcb went into the fetch path at 18:31 and
+   the single-cycle multiplier at 19:38, with the co-simulation runner
+   rebuilt at 19:35. So roughly the first twenty batches exercised the
+   bitmanip-only core and the rest exercised the compressed one. The
+   count is an accumulation across two designs.
+
+   That is a real result and it is not O2. Variant 1's objective was a
+   clean campaign against frozen RTL, and this has to be the same: the
+   marathon is restarted from zero on the current RTL, and O2 stays open
+   until 10⁹ instructions run end to end against one unchanging design.
+
+   What *is* established on the current RTL: the directed ISA program
+   and 20 random programs match Spike over 153 982 instructions, with
+   and without 35 % memory back-pressure, on code that is roughly 30 %
+   compressed.
+
 2. **The architectural suite runs and passes** — 114 of 114 selected
    tests, including all 29 `rv32i_m/B` tests, against Spike
    (`make riscof`). Two caveats keep this short of variant 1's O1 claim:
