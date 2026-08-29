@@ -152,7 +152,22 @@ Largest first.
    same sticky status bit as a real memory fault. Distinguishing them
    would need a separate event source.
 6. **CLINT, E2E and the JTAG TAP are not instantiated** by the subsystem.
-   The existing `timer` and `irq_ctrl` still serve it.
+   The existing `timer` and `irq_ctrl` still serve it. All three are
+   written and block-verified; what stops each is integration ripple
+   rather than the block:
+
+   * **CLINT** needs an APB-to-simple-slave bridge (it has a plain
+     `req/we/addr` port, not APB) and a free slot — 7 through 14 are
+     free. The obstacle is its `cfg_err_o`: the safety controller's
+     `cfg_err_i` is a **fixed 6-bit vector**, so a seventh
+     configuration-parity source widens a port on a verified safety
+     module, shifts the status-register bit layout, and ripples into the
+     register map, the programming manual and software. That is a
+     deliberate change, not a drop-in.
+   * **E2E** inserts a generator and a checker into the bus datapath.
+   * **JTAG** adds pins to the subsystem's port list, which also moves
+     the hardening flow's pin placement — so it belongs *before* a
+     hardening run, not after.
 7. **The single-cycle multiplier is in the core.** The two paths are
    split on `md_op[2]`, which separates the four multiplies from the four
    divides — one reason the operator encoding is kept identical to
@@ -163,10 +178,23 @@ Largest first.
    one multiply. The cost is a combinational 33×33 multiplier on the
    writeback path; whether the 40 ns period absorbs it is a question for
    the next hardening run, not for simulation.
-8. **No physical implementation exists.** Nothing has been through
-   synthesis-to-GDS for this variant, so there is no area, timing, DRC or
-   LVS result. Variant 1's numbers are not a prediction: this core has a
-   wider ALU operator, the bitmanip datapath and an extra checker.
+8. **A first hardening run is in progress, and it does not describe the
+   current RTL.** It was launched before Zca/Zcb and the single-cycle
+   multiplier went in, so its netlist is the bitmanip-core-only design.
+   What it has established so far, on a 1440 × 2521 µm die (3.630 mm²)
+   sized from variant 2's own synthesis:
+
+   | | |
+   |---|---|
+   | placement utilisation | 0.567 |
+   | detailed routing | **0 DRC violations** |
+   | antenna, post-route | **0 nets, 0 pins** |
+   | instances | 113 799, of which **56 389 antenna diodes** |
+
+   Against variant 1 that is +18.6 % instances and +21 % diodes. DRC and
+   LVS are still to come. **A re-harden with the complete RTL is
+   required** before any of this describes the design, and it should
+   follow the JTAG port change rather than precede it.
 9. **Coverage, fault injection and the FMEDA have not been re-run.**
 
 ---
