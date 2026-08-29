@@ -1,7 +1,10 @@
 # RISCOF — architectural test suite (objective O1)
 
-**Status: infrastructure in place, not yet producing a result.** Read
-the last section before quoting anything from here.
+**Status: producing a result — 114 of 114 selected tests pass**, including
+all 29 `rv32i_m/B` tests, against Spike as the reference. Read the
+caveats section before quoting anything from here; in particular the
+suite is a vintage release and 43 PMP tests are dropped by selection
+rather than by result.
 
 ## What this is
 

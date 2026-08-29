@@ -189,7 +189,39 @@ reference that knows what the ISA string means — Spike, told
 `rv32im_zba_zbb_zbs_zicsr_zifencei` — disagreed. **A bench that encodes
 your own assumption cannot audit that assumption.**
 
-## 7. Two lint findings fixed rather than waived
+## 7. The architectural suite: the reference was the broken half
+
+All 32 B tests failed on the first RISCOF run, with **byte-identical
+signature hashes across `andn`, `bclr`, `bext`, `bset` and the rest.**
+Distinct tests cannot agree unless one side is degenerate, and that is
+what pointed at the reference rather than the DUT: Spike's signature was
+all `deadbeef` — the untouched fill — while the DUT's held real values.
+
+The cause is in RISCOF's stock Spike plugin. `build()` assembles the
+`--isa` string by testing for the single letters `I M C F D` and nothing
+else, so a core whose extras are all Z extensions is handed
+`--isa=rv32im` and the *model* traps on every instruction under test.
+Nothing errors: Spike exits normally and RISCOF blames the DUT. Fixed by
+taking the Z extensions from the validated ISA string, and logging the
+resulting `--isa` so it is visible in the run. Written up in
+[../verif/riscof/upstream-issues.md](../verif/riscof/upstream-issues.md).
+
+Result after the fix: **114 of 114 selected tests pass, 29 of them B.**
+
+Two things worth carrying forward from this one:
+
+- **Identical failure signatures across different tests are a
+  single-root-cause signal**, not N findings. The same reasoning that
+  turns 149 region-0 devices into one `DEGENERATE-OP` applies here.
+- **I then made the mirror mistake myself.** Checking whether any
+  signature was degenerate, I sampled the reference files *while RISCOF
+  was still writing them* — their mtimes were inside the second I ran
+  the check — and concluded 35 of the 114 passes were empty comparisons.
+  They were not: re-checked after the run settled, all 114 carry real
+  signatures. Reading a file that is still being written gives an answer
+  that looks like a finding.
+
+## 8. Two lint findings fixed rather than waived
 
 - The PMP TOR lower bound for region 0 is a constant zero, so
   `req_addr >= 0` is always true and Verilator flagged the comparison as

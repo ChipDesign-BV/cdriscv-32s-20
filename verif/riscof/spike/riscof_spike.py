@@ -75,6 +75,23 @@ class spike(pluginTemplate):
         if "D" in ispec["ISA"]:
             self.isa += 'd'
 
+        # The stock plugin stops at the single-letter extensions, so a
+        # core whose extras are all Z extensions gets --isa=rv32im and
+        # Spike traps on every one of them.  The symptom is not an
+        # error: the reference signature simply stays at its deadbeef
+        # fill while the DUT's is full of real values, and RISCOF
+        # reports the DUT as failing.  Every B test failed with the
+        # *same* signature hash, which is what gave it away -- distinct
+        # tests cannot agree unless one side is degenerate.
+        #
+        # Take the Z extensions straight from the validated ISA string
+        # rather than enumerating them here, so adding one to the yaml
+        # is enough.
+        _z = [t for t in ispec["ISA"].lower().split('_') if t.startswith('z')]
+        if _z:
+            self.isa += '_' + '_'.join(_z)
+        logger.info('spike reference --isa=' + self.isa)
+
         # based on the validated isa and platform configure your simulator or
         # build your RTL here
 

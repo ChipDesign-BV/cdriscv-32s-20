@@ -118,3 +118,53 @@ both sides.
 `riscv/riscv-arch-test` no longer contains `riscv-test-suite/` — the legacy
 suite moved to `old-framework-3.x`, and the default branch is now `act4`. A
 new user following the RISCOF quickstart gets a checkout with no tests in it.
+
+---
+
+## riscof_spike.py drops every Z extension from `--isa`
+
+**Where:** the Spike reference plugin shipped with RISCOF (`riscof
+setup --refname=spike`), `build()`.
+
+**What it does:** the plugin assembles Spike's `--isa` string by testing
+the validated ISA for the single letters `I M C F D` and nothing else. A
+core whose additional extensions are all Z extensions — here
+`Zba`, `Zbb`, `Zbs` — is handed `--isa=rv32im`, so the *reference model*
+traps on every instruction under test.
+
+**Why it is worth reporting rather than just patching:** it does not
+fail loudly. Spike exits normally, its signature stays at the `deadbeef`
+fill, and RISCOF reports **the DUT** as failing every test in the group.
+The natural reading is that the DUT's new extension is broken. Here all
+32 B tests failed with byte-identical signature hashes, which is the
+only reason it was caught quickly — distinct tests cannot agree unless
+one side is degenerate.
+
+**Fix applied here** (`spike/riscof_spike.py`): take the Z extensions
+from the validated ISA string rather than enumerating them, so adding
+one to the yaml is sufficient, and log the resulting `--isa` so it is
+visible in the run:
+
+```python
+_z = [t for t in ispec["ISA"].lower().split('_') if t.startswith('z')]
+if _z:
+    self.isa += '_' + '_'.join(_z)
+logger.info('spike reference --isa=' + self.isa)
+```
+
+## riscv-config does not map Zba+Zbb+Zbs onto `misa.B`
+
+**Where:** `riscv-config` 3.18.3, ISA validation.
+
+The ratified B extension comprises exactly Zba, Zbb and Zbs, and Spike
+sets `misa` bit 1 for `--isa=rv32im_zba_zbb_zbs...`. riscv-config does
+not: it rejects `RV32IMB…` as not matching the canonical ordering regex,
+and for `RV32IMZicsr_Zifencei_Zba_Zbb_Zbs` it computes an expected
+`misa` **without** bit 1, failing the yaml if the reset value sets it.
+
+**Consequence here:** `cdriscv_32s_20_isa.yaml` declares the reset value
+riscv-config expects (`0x40001100`) while the DUT and Spike both report
+`0x40001102`. The yaml is used for test *selection* and coverage, not
+for signature comparison, so this does not weaken the result — but it
+means the yaml is not a faithful description of the hardware, and that
+is worth knowing before anyone quotes it.

@@ -110,9 +110,15 @@ Largest first.
    instructions, with and without 35 % memory back-pressure. The 10⁹
    marathon (`scripts/o2_marathon.sh`) is grinding; **variant 1's O2
    objective is not met here until it completes.**
-2. **The architectural suite has not been rebuilt** for
-   `rv32im_zba_zbb_zbs`. Zcb in particular has no architectural tests
-   upstream at all and will need directed tests.
+2. **The architectural suite runs and passes** — 114 of 114 selected
+   tests, including all 29 `rv32i_m/B` tests, against Spike
+   (`make riscof`). Two caveats keep this short of variant 1's O1 claim:
+   the suite is a vintage release, and 43 PMP tests are dropped by
+   selection rather than by result — the vintage suite selects them on
+   any RV32 I+Zicsr core, and although this variant now has PMP *CSRs*,
+   its checker is not in the access path, so they would not be
+   meaningful yet. Zcb still has no architectural tests upstream at all
+   and will need directed tests.
 3. **Zca/Zcb are not in the fetch path.** `decompress` and `if_align` are
    written and verified, but nothing instantiates them: the IF stage
    still fetches whole words. Wiring them in also means widening `mepc`

@@ -31,8 +31,8 @@ describe different things.
 >
 > | What variant 1 established | State here |
 > |---|---|
-> | `riscv-arch-test`, 85 of 85 | **not re-run** — the suite must be rebuilt for this ISA |
-> | 10⁹-instruction co-simulation vs Spike | **not re-run** — Spike needs the new `-march` |
+> | `riscv-arch-test`, 85 of 85 | **re-run and extended** — 114 of 114 now pass, including 29 B tests |
+> | 10⁹-instruction co-simulation vs Spike | **in progress** — harness retargeted, generator emits bitmanip |
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence bench below |
 > | coverage, fault injection, FMEDA | **not re-run** — all measured on variant 1's netlist |
 > | RTL2GDS: DRC, LVS, timing closure | **not run** — no physical implementation of this variant exists |
@@ -179,8 +179,8 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, mul/div, clock monitor, TCM, IF-stage equivalence |
 | New block benches | **pass, 2 040 038 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
-| Architectural suite | **not re-run** | the suite must be rebuilt for `rv32im_zba_zbb_zbs` |
-| Co-simulation vs Spike | **not re-run** | Spike needs the new `-march`; this is the largest open verification item |
+| Architectural suite | **114 of 114 pass**, 29 of them B | `make riscof` against Spike; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
+| Co-simulation vs Spike | **running** | retargeted and extended to emit Zba/Zbb/Zbs; the 10⁹ marathon is in progress, so O2 is not yet met |
 | Formal | **not re-run** | variant 1's decoder proof was of variant 1's decoder |
 | Coverage, fault injection, FMEDA | **not re-run** | all measured on variant 1's netlist |
 | Gate level, timing, RTL2GDS | **not run** | no physical implementation of this variant exists |
