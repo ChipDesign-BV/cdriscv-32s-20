@@ -200,9 +200,29 @@ Largest first.
    | detailed routing | **0 DRC violations** |
    | antenna, post-route | **0 nets, 0 pins** |
    | instances | 113 799, of which **56 389 antenna diodes** |
+   | setup, slow 1.08 V/125 °C | **+1.393 ns**, TNS 0, 0 violating paths |
+   | hold, fast 1.32 V/−40 °C | **+0.140 ns**, TNS 0 |
+   | setup, typ / fast | +12.86 / +19.46 ns |
 
-   Against variant 1 that is +18.6 % instances and +21 % diodes. DRC and
-   LVS are still to come. **A re-harden with the complete RTL is
+   Against variant 1 that is +18.6 % instances and +21 % diodes. LVS is
+   still running.
+
+   **The timing number is the one to pay attention to.** Variant 1 closes
+   the same 40 ns period with +2.698 ns; variant 2 has +1.393 ns. The
+   bitmanip datapath costs **1.30 ns**, leaving about half the margin —
+   a 38.6 ns critical path, so a ceiling near 25.9 MHz rather than
+   variant 1's 26.8 MHz.
+
+   **And this run does not contain the single-cycle multiplier.** A
+   combinational 33×33 multiplier sits on the writeback path, and there
+   is now a measured 1.393 ns of headroom for it to eat. Whether 25 MHz
+   still closes with it is an open question that only the re-harden
+   answers; if it does not, the multiplier is the first thing to
+   reconsider, because the divider it replaced was never the bottleneck.
+
+   Max-slew violations rose to 1098 at the slow corner (variant 1: 791).
+   The flow does not gate on these — see variant 1's V46/V48 — but the
+   direction is worth watching. **A re-harden with the complete RTL is
    required** before any of this describes the design, and it should
    follow the JTAG port change rather than precede it.
 9. **Coverage, fault injection and the FMEDA have not been re-run.**
