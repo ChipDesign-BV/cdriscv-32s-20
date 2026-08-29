@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- JTAG TAP block bench.
+// cdriscv-32s-10 v2 -- JTAG TAP block bench.
 //
 // The reference is the IEEE 1149.1 state machine written from the
 // standard's own transition table, independently of the DUT's case

@@ -1,7 +1,7 @@
-# cdriscv-32s programming manual
+# cdriscv-32s-10 programming manual
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s)
+> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result below was produced on
 > variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
 > is wider and whose core carries three replaced modules. See

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- end-to-end bus protection block bench.
+// cdriscv-32s-10 v2 -- end-to-end bus protection block bench.
 //
 // The claim E2E makes is narrow and specific: a payload that arrives
 // intact but at the WRONG ADDRESS must be rejected.  That is what

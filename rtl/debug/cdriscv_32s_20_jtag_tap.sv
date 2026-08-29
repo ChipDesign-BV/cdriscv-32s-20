@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- JTAG TAP, without pulp-platform/riscv-dbg.
+// cdriscv-32s-10 v2 -- JTAG TAP, without pulp-platform/riscv-dbg.
 //
 // riscv-dbg is the usual way to get RISC-V external debug, but it
 // brings a large third-party codebase that would have to be qualified

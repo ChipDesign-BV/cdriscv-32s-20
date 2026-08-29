@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- CLINT block bench.
+// cdriscv-32s-10 v2 -- CLINT block bench.
 //
 // The reference is a plain behavioural model of what the privileged
 // specification says a CLINT does, written from the prose rather than

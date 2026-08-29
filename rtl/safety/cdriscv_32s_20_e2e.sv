@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- end-to-end (E2E) bus protection.
+// cdriscv-32s-10 v2 -- end-to-end (E2E) bus protection.
 //
 // The TCMs in variant 1 are ECC-protected *inside* the memory: a word
 // is encoded on the way in and checked on the way out, so a fault in

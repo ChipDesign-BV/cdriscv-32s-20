@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- ALU block bench (base + Zba + Zbb + Zbs).
+// cdriscv-32s-10 v2 -- ALU block bench (base + Zba + Zbb + Zbs).
 //
 // The reference model below is written INDEPENDENTLY of the DUT: where
 // the DUT uses a reduction tree the reference uses a loop, where the DUT

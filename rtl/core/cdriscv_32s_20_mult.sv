@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- fast multiplier.
+// cdriscv-32s-10 v2 -- fast multiplier.
 //
 // Variant 1 multiplies iteratively, sharing a shift-and-add datapath
 // with the divider: 32 cycles for any MUL.  Here the multiply is a

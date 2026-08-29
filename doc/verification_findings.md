@@ -1,7 +1,7 @@
-# cdriscv-32s verification findings
+# cdriscv-32s-10 verification findings
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s)
+> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result below was produced on
 > variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
 > is wider and whose core carries three replaced modules. See
@@ -4557,7 +4557,7 @@ comparison, and it is why objective O2 is written the way it is.
 The first value comparison diverged on `csrr t4, misa`: Spike returned
 `0x40141100`, the RTL `0x40001100`. The difference is the S and U bits.
 Spike defaults to `--priv=msu`, so it advertises supervisor and user
-mode; cdriscv-32s is machine mode only and correctly advertises neither.
+mode; cdriscv-32s-10 is machine mode only and correctly advertises neither.
 
 Not an RTL bug — a model configuration mismatch, and a good
 advertisement for comparing values rather than only control flow, since

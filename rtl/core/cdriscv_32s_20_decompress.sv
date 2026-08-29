@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- Zca / Zcb decompressor.
+// cdriscv-32s-10 v2 -- Zca / Zcb decompressor.
 //
 // Expands a 16-bit compressed instruction into the equivalent 32-bit
 // one.  Purely combinational and stateless: everything in Zca and Zcb

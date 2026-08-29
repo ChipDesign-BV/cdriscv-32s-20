@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- Zca/Zcb decompressor: exhaustive dump.
+// cdriscv-32s-10 v2 -- Zca/Zcb decompressor: exhaustive dump.
 //
 // This bench does not judge; it enumerates.  All 65 536 halfwords are
 // pushed through the DUT and the (input, expansion, illegal) triple is

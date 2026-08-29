@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- ALU with Zba / Zbb / Zbs.
+// cdriscv-32s-10 v2 -- ALU with Zba / Zbb / Zbs.
 //
 // Variant 1's ALU covered the base RV32I operations.  This adds the 27
 // bit-manipulation operations of the B extension as ratified

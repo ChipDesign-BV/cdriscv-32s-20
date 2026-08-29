@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- instruction realignment and decompression.
+// cdriscv-32s-10 v2 -- instruction realignment and decompression.
 //
 // Sits between the word-level prefetcher (which variant 1 already has,
 // and which is unchanged) and the decode stage.  It consumes a stream

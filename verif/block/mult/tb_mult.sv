@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- fast multiplier block bench.
+// cdriscv-32s-10 v2 -- fast multiplier block bench.
 //
 // The DUT computes one 33x33 signed product and slices it.  The
 // reference below computes each of the four M-extension multiplies

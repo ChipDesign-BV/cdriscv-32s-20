@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- CLINT (core-local interruptor).
+// cdriscv-32s-10 v2 -- CLINT (core-local interruptor).
 //
 // Variant 1 already implemented the CLINT's *function* -- a 64-bit
 // mtime/mtimecmp pair with spec-correct level interrupt semantics, plus

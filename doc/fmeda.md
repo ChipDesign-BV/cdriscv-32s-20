@@ -1,7 +1,7 @@
-# cdriscv-32s FMEDA
+# cdriscv-32s-10 FMEDA
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s)
+> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result below was produced on
 > variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
 > is wider and whose core carries three replaced modules. See
@@ -44,7 +44,7 @@ process evidence, foundry data and an assessed safety case.
 ## 2. Result
 
 ```
-cdriscv-32s FMEDA -- computed 2026-08-25
+cdriscv-32s-10 FMEDA -- computed 2026-08-25
 ASSUMED rates: SRAM 700 FIT/Mbit, FF 400 FIT/Mbit, permanent 20 FIT total, MBU fraction 2%
 
 element                    lambda FIT   safe FIT    SPF FIT

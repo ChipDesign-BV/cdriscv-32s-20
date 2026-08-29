@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- PMP block bench.
+// cdriscv-32s-10 v2 -- PMP block bench.
 //
 // The reference implements the privileged-spec matching rules from the
 // prose rather than from the DUT: NAPOT size is derived by counting

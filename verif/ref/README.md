@@ -1,6 +1,6 @@
 # Frozen variant-1 reference
 
-Verbatim, unmodified copies of the signed-off cdriscv-32s modules, kept
+Verbatim, unmodified copies of the signed-off cdriscv-32s-10 modules, kept
 here so the equivalence benches can instantiate them beside this repo's
 own versions and compare field for field.
 
@@ -17,9 +17,9 @@ own versions and compare field for field.
    filelist — they appear only in the two equivalence benches.
 2. They are **never edited**. If one of them changes, the comparison
    stops meaning what it claims to mean, which is the whole point of the
-   check. Re-copy from cdriscv-32s instead.
+   check. Re-copy from cdriscv-32s-10 instead.
 3. They keep their original `cdriscv_*` names on purpose. This repo's
    own modules are `cdriscv_32s_20_*`, so the two sets cannot collide
    and a bench can hold both at once.
 
-Source: https://github.com/ChipDesign-BV/cdriscv-32s
+Source: https://github.com/ChipDesign-BV/cdriscv-32s-10

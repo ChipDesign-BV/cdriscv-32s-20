@@ -25,7 +25,7 @@ NOT VERIFIED YET — DO NOT USE YET. This release has not been compiled,
 linted, simulated, synthesised or reviewed, and no functional safety
 claim of any kind is made. See README.md and doc/verification_plan.md.
 
-Derived from cdriscv-32s (https://github.com/ChipDesign-BV/cdriscv-32s),
+Derived from cdriscv-32s-10 (https://github.com/ChipDesign-BV/cdriscv-32s-10),
 also (c) 2026 ChipDesign B.V. and Apache-2.0.  verif/ref/ holds verbatim,
 unmodified copies of several of its modules, kept as a reference for the
 equivalence benches; see verif/ref/README.md.

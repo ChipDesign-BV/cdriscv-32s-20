@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- physical memory protection.
+// cdriscv-32s-10 v2 -- physical memory protection.
 //
 // Machine-mode PMP to the privileged specification: NRegions entries,
 // each an 8-bit pmpcfg and a 34-bit-equivalent pmpaddr (RV32 stores

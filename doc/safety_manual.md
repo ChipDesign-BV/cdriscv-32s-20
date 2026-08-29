@@ -1,7 +1,7 @@
-# cdriscv-32s safety manual (draft)
+# cdriscv-32s-10 safety manual (draft)
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s)
+> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result below was produced on
 > variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
 > is wider and whose core carries three replaced modules. See
@@ -23,14 +23,14 @@
 > 26262, IEC 61508 or any other functional safety standard is made, and
 > none may be derived from this document.**
 >
-> **On the name.** The `s` in `cdriscv-32s` states what the part is
+> **On the name.** The `s` in `cdriscv-32s-10` states what the part is
 > designed *for*, not what it has been certified *as*. This document
 > records design intent and measured evidence so that a real safety case
 > can later be built — or shown to be unachievable.
 
 ## 1. Intended use
 
-`cdriscv-32s` is intended as the digital control element of a
+`cdriscv-32s-10` is intended as the digital control element of a
 mixed-signal SoC where a failure of the control loop has to be detected
 and signalled to a system-level safety mechanism within a short fault
 tolerant time interval. It is a *safety element out of context*: the

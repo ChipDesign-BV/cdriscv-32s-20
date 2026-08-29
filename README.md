@@ -3,7 +3,7 @@
 **A 32-bit RISC-V core subsystem for safety-critical mixed-signal SoCs,
 with higher performance.**
 
-This is **variant 2** of [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s).
+This is **variant 2** of [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10).
 It starts from that design and adds a wider ISA (bit manipulation and
 compressed instructions), physical memory protection, end-to-end bus
 protection, a standard CLINT and a JTAG TAP. Variant 1 remains the
@@ -126,7 +126,7 @@ either detected by a mechanism that reports it, or bounded by one.
 
 ## Physical implementation (RTL2GDS)
 
-**Not run for this variant.** `flow/` is inherited from cdriscv-32s and
+**Not run for this variant.** `flow/` is inherited from cdriscv-32s-10 and
 the configuration is carried over unchanged, but no die exists for
 cdriscv-32s-20 and none of variant 1's physical results describe it.
 
@@ -141,7 +141,7 @@ cd flow && librelane --manual-pdk --pdk-root $PDK_ROOT config.json
 ```
 
 For variant 1's measured physical results, see
-[cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s).
+[cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10).
 
 ## Documentation
 

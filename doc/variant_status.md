@@ -1,6 +1,6 @@
 # cdriscv-32s-20 — what is done, what is not
 
-This variant starts from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s),
+This variant starts from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10),
 which meets its own O1–O7 gate. **None of that gate carries over.** The
 instruction set is wider here and three core modules were replaced, so
 every result that depended on the ISA or on those modules has to be

@@ -1,7 +1,7 @@
-# cdriscv-32s architecture
+# cdriscv-32s-10 architecture
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s](https://github.com/ChipDesign-BV/cdriscv-32s)
+> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result below was produced on
 > variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
 > is wider and whose core carries three replaced modules. See
@@ -12,7 +12,7 @@
 
 ## 1. Overview
 
-`cdriscv-32s` is a 32-bit RISC-V core subsystem intended for the
+`cdriscv-32s-10` is a 32-bit RISC-V core subsystem intended for the
 digital control part of a safety-critical mixed-signal SoC: a sensor
 front-end, a motor or power controller, a battery monitor. It is small
 and deterministic rather than fast, and every structure in it was chosen

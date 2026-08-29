@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s v2 -- machine-mode CSR file.
+// cdriscv-32s-10 v2 -- machine-mode CSR file.
 //
 // Variant 1's CSR file plus the PMP registers and a halfword-aligned
 // mepc.  As with the decoder, the property that matters is that the
