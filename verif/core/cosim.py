@@ -25,7 +25,7 @@ import sys
 
 SPIKE = os.environ.get("SPIKE", "/headless/verif-tools/spike/bin/spike")
 VVP = os.environ.get("VVP", "vvp")
-ISA = "rv32im_zicsr_zifencei"
+ISA = "rv32im_zba_zbb_zbs_zicsr_zifencei"
 
 # Spike --log-commits: "core   0: 3 0x800000dc (0x40e68833) x16 0xffffffff"
 # The disassembly line for the same instruction has no privilege field

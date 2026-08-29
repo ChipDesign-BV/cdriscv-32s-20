@@ -18,7 +18,7 @@ relies on anything here.
 | `pkg` | `alu_op_e` widened 4 → 6 bits, 27 bitmanip operators added; PMP and E2E types; PMP CSR addresses | base operator encodings are **unchanged**, which is what lets the decoder be compared field for field against the frozen reference |
 | `alu` | Zba + Zbb + Zbs, 27 new operations | base ALU bench passes unchanged against it (453 840 vectors) |
 | `decoder` | Zba + Zbb + Zbs decode | equivalence-checked against variant 1's decoder |
-| `csr` | PMP registers; `mepc` halfword aligned; `misa` reports B and C | equivalence-checked against variant 1's CSR file |
+| `csr` | PMP registers; `mepc` halfword aligned; `misa` reports B (**not** C — the fetch path cannot yet deliver compressed instructions) | equivalence-checked against variant 1's CSR file |
 | `core` | wider operator, PMP checker instantiated | PMP resets to all-regions-off, so behaviour out of reset is identical to variant 1 |
 
 New modules, none of them yet in the subsystem's datapath:
@@ -78,7 +78,8 @@ addresses, word-aligned trap PCs, `mepc` writes with bit 1 clear — so it
 stays a strict equality check rather than a whitelist. The three
 deliberate differences are tested separately in phase B:
 
-1. `misa` reports B and C as well as I and M;
+1. `misa` reports B as well as I and M — and deliberately **not** C,
+   because Zca/Zcb are not in the fetch path yet;
 2. `mepc` keeps bit 1, because IALIGN is 16 once Zca exists — variant 1's
    waiver `V0-A5` named `mepc[1:0]` as "the exact bit that changes if Zca
    is added", and this is that change;
@@ -101,9 +102,14 @@ have signed off both.
 
 Largest first.
 
-1. **Co-simulation against Spike has not been re-run.** This is the
-   biggest open item. Variant 1's 10⁹-instruction run does not cover the
-   bit-manipulation instructions, and Spike needs the new `-march`.
+1. **Co-simulation against Spike is running, not finished.** The harness
+   is retargeted to `rv32im_zba_zbb_zbs_zicsr_zifencei` and the random
+   program generator now emits Zba/Zbb/Zbs, so the comparison covers the
+   new instructions. Results so far: the directed ISA program matches
+   (208 instructions), and 25 random programs match over 191 778
+   instructions, with and without 35 % memory back-pressure. The 10⁹
+   marathon (`scripts/o2_marathon.sh`) is grinding; **variant 1's O2
+   objective is not met here until it completes.**
 2. **The architectural suite has not been rebuilt** for
    `rv32im_zba_zbb_zbs`. Zcb in particular has no architectural tests
    upstream at all and will need directed tests.

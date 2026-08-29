@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 BUILD = os.path.join(ROOT, "build", "random")
 CROSS = os.environ.get("CROSS", "riscv64-unknown-elf-")
-ARCH = "rv32im_zicsr_zifencei"
+ARCH = "rv32im_zba_zbb_zbs_zicsr_zifencei"
 
 
 def sh(cmd, **kw):

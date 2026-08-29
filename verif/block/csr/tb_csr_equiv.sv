@@ -240,9 +240,15 @@ module tb_csr_equiv;
     irq_s=0; irq_t=0; irq_e=0; ev_rf=0; ev_il=0; ev_bus=0; ev_ls=0;
     @(posedge clk); #1;
 
-    // --- misa reports I, M, B, C ---
+    // --- misa reports I, M, B -- and NOT C, because the fetch path
+    //     cannot yet deliver compressed instructions ---
     do_read(A_MISA);
-    expect_eq(b_rdata, {2'b01, 4'b0, 26'h000_1106}, "misa (I+M+B+C)");
+    expect_eq(b_rdata, {2'b01, 4'b0, 26'h000_1102}, "misa (I+M+B, not C)");
+    checks = checks + 1;
+    if (b_rdata[2] !== 1'b0) begin
+      $display("[FAIL] misa advertises C while if_align is not instantiated");
+      errors = errors + 1;
+    end
     expect_eq(a_rdata, {2'b01, 4'b0, 26'h000_1100}, "v1 misa (I+M)");
     access = 1'b0; @(posedge clk); #1;
 

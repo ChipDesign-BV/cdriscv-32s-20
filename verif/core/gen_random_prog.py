@@ -41,6 +41,22 @@ LD = [("lw", 4), ("lh", 2), ("lhu", 2), ("lb", 1), ("lbu", 1)]
 ST = [("sw", 4), ("sh", 2), ("sb", 1)]
 BR = ["beq", "bne", "blt", "bge", "bltu", "bgeu"]
 
+# ---- Zba / Zbb / Zbs -------------------------------------------------
+# Split by operand shape rather than by extension, because that is what
+# the emitter cares about.  Every one of these is a code point variant 1
+# rejected as illegal, so a mismatch here is unambiguous: it is the new
+# decode, not a regression in the base ISA.
+BMR = ["sh1add", "sh2add", "sh3add",          # Zba
+       "andn", "orn", "xnor",                 # Zbb logical
+       "max", "maxu", "min", "minu",          # Zbb min/max
+       "rol", "ror",                          # Zbb rotate
+       "bset", "bclr", "binv", "bext"]        # Zbs
+BMI = ["bseti", "bclri", "binvi", "bexti", "rori"]
+# Unary: the rs2 field is an opcode extension, not a register.  Getting
+# these wrong is exactly the defect class the decoder bench found, so
+# they are worth their own weight in the mix.
+BMU = ["clz", "ctz", "cpop", "sext.b", "sext.h", "zext.h", "orc.b", "rev8"]
+
 SCRATCH_WORDS = 32
 
 
@@ -70,8 +86,9 @@ def main():
         pending = [(l, at) for (l, at) in pending if at > n]
 
         kind = rng.choices(
-            ["rr", "ri", "sh", "ld", "st", "br", "lui", "auipc"],
-            weights=[34, 18, 10, 12, 10, 10, 3, 3])[0]
+            ["rr", "ri", "sh", "ld", "st", "br", "lui", "auipc",
+             "bmr", "bmi", "bmu"],
+            weights=[24, 13, 7, 10, 8, 9, 2, 2, 13, 6, 6])[0]
 
         rd = rng.choice(POOL + [0])
         rs1 = rng.choice(POOL)
@@ -85,6 +102,13 @@ def main():
         elif kind == "sh":
             body.append("    %-7s x%d, x%d, %d"
                         % (rng.choice(SH), rd, rs1, rng.randint(0, 31)))
+        elif kind == "bmr":
+            body.append("    %-7s x%d, x%d, x%d" % (rng.choice(BMR), rd, rs1, rs2))
+        elif kind == "bmi":
+            body.append("    %-7s x%d, x%d, %d"
+                        % (rng.choice(BMI), rd, rs1, rng.randint(0, 31)))
+        elif kind == "bmu":
+            body.append("    %-7s x%d, x%d" % (rng.choice(BMU), rd, rs1))
         elif kind == "lui":
             body.append("    %-7s x%d, %d" % ("lui", rd, rng.randint(0, 0xfffff)))
         elif kind == "auipc":

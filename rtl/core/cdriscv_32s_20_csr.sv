@@ -148,10 +148,22 @@ module cdriscv_32s_20_csr
   end
 
   // ------------------------------------------------------------------
-  // misa: MXL = 1, extensions I, M, B, C
+  // misa: MXL = 1, extensions I, M, B
   // ------------------------------------------------------------------
-  // Variant 1 reports I and M only.  Bit 1 is B and bit 2 is C.
-  localparam logic [31:0] MISA_VALUE = {2'b01, 4'b0, 26'h000_1106};
+  // Bit 1 is B (Zba + Zbb + Zbs) and bit 8 is I, bit 12 is M.
+  //
+  // Bit 2 (C) is deliberately NOT set.  The decompressor and the
+  // realigner are written and verified, but nothing instantiates them
+  // yet -- the fetch stage still reads whole words -- so a core that
+  // advertised C would be telling software it may emit instructions the
+  // fetch path cannot deliver.  misa reports what is implemented, not
+  // what is written.  Set bit 2 in the same commit that puts
+  // cdriscv_32s_20_if_align into the fetch path, not before.
+  //
+  // This was wrong in the first version and the Spike co-simulation
+  // caught it on its first run: the model read 0x40001102 where the RTL
+  // returned 0x40001106.
+  localparam logic [31:0] MISA_VALUE = {2'b01, 4'b0, 26'h000_1102};
 
   // ------------------------------------------------------------------
   // PMP register read multiplexing

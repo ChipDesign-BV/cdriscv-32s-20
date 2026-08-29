@@ -159,7 +159,37 @@ must also lock `pmpaddr[i-1]`**, because that address is the region's
 lower bound. Locking only the cfg byte leaves the region locked while its
 base can still be moved. Two mutants targeted exactly that.
 
-## 6. Two lint findings fixed rather than waived
+## 6. misa advertised an extension the fetch path cannot deliver
+
+The Spike co-simulation caught this on its **first run**, at retired
+instruction 197 of the directed ISA program:
+
+```
+  pc=80000238  30102ef3   spike x29=40001102   rtl x29=40001106
+```
+
+`30102ef3` is `csrrs x29, misa, x0`. Bit 2 is the **C** flag, and the RTL
+was setting it. The decompressor and the realigner are written and
+verified, but nothing instantiates them — the fetch stage still reads
+whole words — so the core was telling software it may emit compressed
+instructions that the fetch path cannot deliver. Software that believed
+`misa` would have executed one and taken an illegal-instruction trap at
+best.
+
+The fix is one bit, but the rule behind it is the point: **`misa` reports
+what is implemented, not what is written.** Bit 2 gets set in the same
+commit that puts `cdriscv_32s_20_if_align` into the fetch path, and the
+CSR bench now asserts it stays clear until then, so the guard fails if
+anyone sets it early.
+
+Worth noting how it was missed: the block benches could not have caught
+it. The CSR equivalence bench *checked* `misa`, but it checked it against
+the value I had written down, so it agreed with the mistake. Only a
+reference that knows what the ISA string means — Spike, told
+`rv32im_zba_zbb_zbs_zicsr_zifencei` — disagreed. **A bench that encodes
+your own assumption cannot audit that assumption.**
+
+## 7. Two lint findings fixed rather than waived
 
 - The PMP TOR lower bound for region 0 is a constant zero, so
   `req_addr >= 0` is always true and Verilator flagged the comparison as
