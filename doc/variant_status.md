@@ -156,14 +156,24 @@ Largest first.
    written and block-verified; what stops each is integration ripple
    rather than the block:
 
-   * **CLINT** needs an APB-to-simple-slave bridge (it has a plain
-     `req/we/addr` port, not APB) and a free slot — 7 through 14 are
-     free. The obstacle is its `cfg_err_o`: the safety controller's
-     `cfg_err_i` is a **fixed 6-bit vector**, so a seventh
-     configuration-parity source widens a port on a verified safety
-     module, shifts the status-register bit layout, and ripples into the
-     register map, the programming manual and software. That is a
-     deliberate change, not a drop-in.
+   * **CLINT needs a window on the main bus, not an APB slot.** It
+     decodes the *standard* RISC-V CLINT map — `msip` at offset 0x0000,
+     `mtimecmp` at 0x4000, `mtime` at **0xBFF8** — which spans 48 KB.
+     The APB decode carries a 12-bit `paddr`, so a peripheral slot can
+     address 4 KB and cannot reach `mtime` at all. Remapping the offsets
+     to fit would make it a non-standard CLINT, which defeats the point
+     of having one: software expects those addresses. The work is a
+     bus-decode change giving it a 64 KB window alongside the TCMs.
+
+     Two smaller things were checked and are *not* obstacles. An
+     APB-to-simple-slave bridge is four lines — the CLINT answers
+     combinationally and APB's access phase is one cycle. And its
+     `cfg_err_o` fits the safety controller cleanly: `cfg_src` is
+     `{cfg_err_i, cfg_err_own}` with `cfg_err_own` at bit 0, so a
+     seventh source appends at bit 7 and **no existing bit moves** —
+     software reading `CFGSRC` keeps its bit numbering. An earlier note
+     here claimed that widening would shift the layout; it was written
+     without checking and is wrong.
    * **E2E** inserts a generator and a checker into the bus datapath.
    * **JTAG** adds pins to the subsystem's port list, which also moves
      the hardening flow's pin placement — so it belongs *before* a
