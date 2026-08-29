@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32im_zba_zbb_zbs_zicsr_zifencei
 ABI        := ilp32
 
-.PHONY: all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -397,6 +397,13 @@ $(BUILD)/trap_test.elf: verif/core/trap_test.S tb/sw/link.ld | $(BUILD)
 $(BUILD)/trap_test.bin: $(BUILD)/trap_test.elf
 	$(OBJCOPY) -O binary --only-section=.text $< $@
 
+$(BUILD)/pmp_test.elf: verif/core/pmp_test.S tb/sw/link.ld | $(BUILD)
+	$(CC) -march=$(ARCH) -mabi=$(ABI) -nostdlib -nostartfiles \
+	  -T tb/sw/link.ld -o $@ verif/core/pmp_test.S
+
+$(BUILD)/pmp_test.bin: $(BUILD)/pmp_test.elf
+	$(OBJCOPY) -O binary --only-section=.text $< $@
+
 # Every exception cause the core can raise, with mcause and mtval
 # checked for each, plus the illegal encodings a valid program never
 # contains.
@@ -407,6 +414,18 @@ trap: $(BUILD)/tb_cdriscv_subsys.vvp $(BUILD)/trap_test.hex \
 	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex \
 	  +MAX_CYCLES=100000 | tee $(BUILD)/trap.log
 	@grep -q "PASS" $(BUILD)/trap.log
+
+# ------------------------------------------------- PMP directed test
+# The rest of the regression proves PMP does not fire (every region
+# resets to OFF).  This proves it does, and in both directions: an
+# unlocked entry must NOT bind machine mode, a locked one must.
+pmp: $(BUILD)/tb_cdriscv_subsys.vvp $(BUILD)/pmp_test.hex \
+     $(BUILD)/dtcm_zero.hex
+	$(VVP) $(BUILD)/tb_cdriscv_subsys.vvp \
+	  +ITCM_HEX=$(BUILD)/pmp_test.hex \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex \
+	  +MAX_CYCLES=100000 | tee $(BUILD)/pmp.log
+	@grep -q "PASS" $(BUILD)/pmp.log
 
 # ------------------------------------------------- reaction tests
 $(BUILD)/reaction_test.elf: verif/safety/reaction_test.S tb/sw/link.ld | $(BUILD)

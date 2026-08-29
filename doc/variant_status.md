@@ -128,14 +128,26 @@ Largest first.
    `cm.push`/`cm.pop`/`cm.popret` expand to a *variable-length sequence*
    of loads and stores plus a stack adjustment, not to one 32-bit
    instruction. They need a sequencer in the core.
-5. **PMP does not gate accesses.** The checker is instantiated against
-   the real CSR state and the real data address, so it is elaborated and
-   synthesised rather than discovered late, but `allow_o` is not yet
-   consumed. Letting it raise a load/store access fault changes core
-   control flow and needs its own verification round. Because every
-   region resets to OFF and this core is machine-mode only, `allow_o` is
-   1 out of reset — which is precisely why the inherited regression still
-   applies.
+5. **PMP gates data accesses; instruction fetch is not checked yet.**
+   A denied load or store raises `EXC_LOAD_FAULT` / `EXC_STORE_FAULT`
+   *before* the request reaches the bus — the exception is raised in the
+   same pre-issue block as a misaligned address, and `start_lsu` is gated
+   on `!take_exc`, so nothing is issued and then retracted. Checking the
+   fetch address needs the check on the fetch side and is a separate
+   change.
+
+   `make pmp` is the directed test, mutation-validated 3/3. It checks
+   **both directions**, because a checker that denied everything would
+   pass a one-sided test: an entry that is programmed but **unlocked**
+   must not bind machine mode, and only a **locked** entry with no
+   permission may deny. That asymmetry is the part of the privileged
+   spec that catches people out.
+
+   One consequence worth knowing: a PMP denial reports through the
+   safety controller's **bus-error** event, because it raises the same
+   `EXC_*_FAULT` causes. A software access violation therefore sets the
+   same sticky status bit as a real memory fault. Distinguishing them
+   would need a separate event source.
 6. **CLINT, E2E and the JTAG TAP are not instantiated** by the subsystem.
    The existing `timer` and `irq_ctrl` still serve it.
 7. **The single-cycle multiplier is not in the core.** `multdiv` still

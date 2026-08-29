@@ -1,5 +1,5 @@
 {
-  "//": "cdriscv-32s-10 -- LibreLane 3 RTL2GDS flow (findings V45).",
+  "//": "cdriscv-32s-20 -- LibreLane 3 RTL2GDS flow, variant 2's own floorplan.",
   "//tcm": "The TCM storage uses the same macro-backed wrapper as the timing flow (verif/gate/cdriscv_32s_20_tcm_macro.sv): two RM_IHPSG13_1P_2048x64 banks per TCM, so the arrays are silicon macros, not 320 kbit of flip-flops.",
   "DESIGN_NAME": "cdriscv_32s_20_subsys_hard",
   "PDK": "ihp-sg13g2",
@@ -13,6 +13,7 @@
     "dir::../rtl/core/cdriscv_32s_20_regfile.sv",
     "dir::../rtl/core/cdriscv_32s_20_multdiv.sv",
     "dir::../rtl/core/cdriscv_32s_20_lsu.sv",
+    "dir::../rtl/core/cdriscv_32s_20_pmp.sv",
     "dir::../rtl/core/cdriscv_32s_20_csr.sv",
     "dir::../rtl/core/cdriscv_32s_20_if_stage.sv",
     "dir::../rtl/core/cdriscv_32s_20_core.sv",
@@ -51,28 +52,28 @@
       "instances": {
         "u_sub.u_itcm.g_bank[0].u_bank": {
           "location": [
-            90,
+            144,
             40
           ],
           "orientation": "FS"
         },
         "u_sub.u_itcm.g_bank[1].u_bank": {
           "location": [
-            547,
+            601,
             40
           ],
           "orientation": "FS"
         },
         "u_sub.u_dtcm.g_bank[0].u_bank": {
           "location": [
-            90,
+            144,
             1854
           ],
           "orientation": "N"
         },
         "u_sub.u_dtcm.g_bank[1].u_bank": {
           "location": [
-            547,
+            601,
             1854
           ],
           "orientation": "N"
@@ -94,14 +95,14 @@
       "instances": {
         "u_sub.u_itcm.u_par": {
           "location": [
-            1004,
+            1058,
             40
           ],
           "orientation": "FS"
         },
         "u_sub.u_dtcm.u_par": {
           "location": [
-            1004,
+            1058,
             1854
           ],
           "orientation": "N"
@@ -123,13 +124,13 @@
   "DIE_AREA": [
     0,
     0,
-    1330,
+    1440,
     2521
   ],
   "CORE_AREA": [
     10,
     10,
-    1320,
+    1430,
     2511
   ],
   "FP_PDN_ENABLE_MACROS_GRID": true,

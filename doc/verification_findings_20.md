@@ -221,7 +221,39 @@ Two things worth carrying forward from this one:
   signatures. Reading a file that is still being written gives an answer
   that looks like a finding.
 
-## 8. Two lint findings fixed rather than waived
+## 8. PMP: proving it fires, not just that it does not
+
+The inherited regression passing after PMP was wired in proves only that
+it **does not fire** — every region resets to OFF, so `allow_o` is 1 and
+behaviour is identical to the base subsystem. That is evidence of no
+regression and no evidence at all that the mechanism works.
+
+`make pmp` is the other half, and it deliberately checks both
+directions. In machine mode a PMP entry is ignored unless its **lock**
+bit is set, so:
+
+* an entry programmed with no permissions but **unlocked** must still
+  permit the access;
+* only a **locked** entry with no permission may deny it.
+
+A checker that simply denied everything would sail through a one-sided
+test. Three mutants confirm the test can fail: removing the gating,
+removing the M-mode-unlocked bypass in the checker, and swapping the
+load and store fault causes — 3 of 3 killed.
+
+Where the exception is raised matters as much as whether it is raised.
+It goes in the same pre-issue block as a misaligned address, not beside
+`lsu_err`, because `start_lsu` is gated on `!take_exc`: a denied access
+is never put on the bus and then retracted.
+
+**One consequence to be aware of:** a PMP denial reports through the
+safety controller's *bus-error* event, since it raises the same
+`EXC_LOAD_FAULT` / `EXC_STORE_FAULT` causes. A software access violation
+therefore sets the same sticky status bit as a genuine memory fault.
+That is a mapping decision, not an oversight, but distinguishing the two
+would need its own event source.
+
+## 9. Two lint findings fixed rather than waived
 
 - The PMP TOR lower bound for region 0 is a constant zero, so
   `req_addr >= 0` is always true and Verilator flagged the comparison as

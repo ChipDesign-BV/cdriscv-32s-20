@@ -368,6 +368,16 @@ module cdriscv_32s_20_core
         exc_valid = 1'b1;
         exc_cause = lsu_we ? EXC_STORE_MISALIGN : EXC_LOAD_MISALIGN;
         exc_tval  = lsu_addr;
+      end else if (lsu_req_dec && !pmp_allow_data) begin
+        // PMP denies the access.  It sits *after* the misalignment check
+        // because the privileged spec orders address-misaligned ahead of
+        // access-fault, and it sits in this block rather than beside
+        // lsu_err because a denied access must never reach the bus at
+        // all: start_lsu is gated on !take_exc, so raising the exception
+        // here suppresses the request the way a misaligned address does.
+        exc_valid = 1'b1;
+        exc_cause = lsu_we ? EXC_STORE_FAULT : EXC_LOAD_FAULT;
+        exc_tval  = lsu_addr;
       end
     end
   end
@@ -539,22 +549,21 @@ module cdriscv_32s_20_core
   );
 
   // ------------------------------------------------------------------
-  // PMP: configuration is live, the checker is not yet in the access path
+  // PMP: the checker gates data accesses
   // ------------------------------------------------------------------
   // The pmpcfg/pmpaddr CSRs are implemented and verified (see
   // verif/block/tb_csr_equiv.sv, including the TOR locking rule), and
-  // cdriscv_32s_20_pmp is verified standalone at 52 419 checks.  What is
-  // NOT done is letting allow_o gate loads, stores and fetches and raise
-  // an access fault -- that changes core control flow and needs its own
-  // verification round.
+  // cdriscv_32s_20_pmp is verified standalone at 52 419 checks, and
+  // allow_o now gates loads and stores: a denied access raises
+  // EXC_LOAD_FAULT / EXC_STORE_FAULT before the request reaches the bus.
   //
-  // The checker is instantiated here anyway, against the real CSR state
-  // and the real data address, so it is elaborated, synthesised and
-  // carried through the flow rather than discovered late.  Because every
-  // region resets to OFF and this core is machine mode only, allow_o is
-  // 1 out of reset and the behaviour is identical to the base subsystem
-  // until software programs a region -- which is exactly why the base
-  // regression still applies unchanged.
+  // Instruction fetch is NOT yet checked.  That needs the address on the
+  // fetch side and is a separate change.
+  //
+  // Every region resets to OFF and this core is machine mode only, so
+  // allow_o is 1 out of reset and behaviour is identical to the base
+  // subsystem until software programs a region.  That is what lets the
+  // inherited regression stand as evidence of no regression.
   pmp_cfg_t pmp_cfg_struct [PMP_REGIONS];
   for (genvar r = 0; r < PMP_REGIONS; r++) begin : g_pmp_cfg
     assign pmp_cfg_struct[r] = pmp_cfg[r];
@@ -585,12 +594,7 @@ module cdriscv_32s_20_core
   assign retire_pc_o    = instr_pc;
   assign retire_instr_o = instr_rdata;
 
-  // pmp_allow_data is deliberately not consumed yet -- see the note at
-  // the PMP instance above.  It is tied off here rather than waived so
-  // that the day it starts gating accesses, this line is the one that
-  // has to be deleted, and it will not compile until it is.
   logic unused_ok;
-  assign unused_ok = |{mstatus_mie, lsu_busy, md_busy, rf_we_dec,
-                       pmp_allow_data};
+  assign unused_ok = |{mstatus_mie, lsu_busy, md_busy, rf_we_dec};
 
 endmodule
