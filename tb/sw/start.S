@@ -150,6 +150,7 @@ fail:
     sw   t1, 0(t0)
 4:  j    4b
 
+    .align 2                     /* mtvec BASE is bits [31:2] */
 trap_handler:
     /* any unexpected trap fails the run */
     li   t0, EXIT_REG

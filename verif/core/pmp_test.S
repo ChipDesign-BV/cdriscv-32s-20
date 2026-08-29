@@ -127,6 +127,7 @@ fail:
     sw   a0, 0(t0)
 2:  j    2b
 
+    .align 2                     /* mtvec BASE is bits [31:2] */
 trap_handler:
     csrr s8, mcause
     csrr s9, mtval

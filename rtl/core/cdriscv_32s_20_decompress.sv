@@ -72,16 +72,16 @@ module cdriscv_32s_20_decompress (
   assign shamt    = instr_i[6:2];
 
   // ---- 32-bit instruction builders ------------------------------------
-  function automatic logic [31:0] i_type(logic [31:0] imm, logic [4:0] s1,
+  function automatic logic [31:0] i_type(logic [31:0] immv, logic [4:0] s1,
                                          logic [2:0] f3, logic [4:0] d,
                                          logic [6:0] op);
-    return {imm[11:0], s1, f3, d, op};
+    return {immv[11:0], s1, f3, d, op};
   endfunction
 
-  function automatic logic [31:0] s_type(logic [31:0] imm, logic [4:0] s2,
+  function automatic logic [31:0] s_type(logic [31:0] immv, logic [4:0] s2,
                                          logic [4:0] s1, logic [2:0] f3,
                                          logic [6:0] op);
-    return {imm[11:5], s2, s1, f3, imm[4:0], op};
+    return {immv[11:5], s2, s1, f3, immv[4:0], op};
   endfunction
 
   function automatic logic [31:0] r_type(logic [6:0] f7, logic [4:0] s2,
@@ -90,13 +90,13 @@ module cdriscv_32s_20_decompress (
     return {f7, s2, s1, f3, d, op};
   endfunction
 
-  function automatic logic [31:0] b_type(logic [31:0] imm, logic [4:0] s2,
+  function automatic logic [31:0] b_type(logic [31:0] immv, logic [4:0] s2,
                                          logic [4:0] s1, logic [2:0] f3);
-    return {imm[12], imm[10:5], s2, s1, f3, imm[4:1], imm[11], 7'h63};
+    return {immv[12], immv[10:5], s2, s1, f3, immv[4:1], immv[11], 7'h63};
   endfunction
 
-  function automatic logic [31:0] j_type(logic [31:0] imm, logic [4:0] d);
-    return {imm[20], imm[10:1], imm[11], imm[19:12], d, 7'h6f};
+  function automatic logic [31:0] j_type(logic [31:0] immv, logic [4:0] d);
+    return {immv[20], immv[10:1], immv[11], immv[19:12], d, 7'h6f};
   endfunction
 
   // ---- the decode table -------------------------------------------------

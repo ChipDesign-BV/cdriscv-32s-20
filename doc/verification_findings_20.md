@@ -253,7 +253,50 @@ therefore sets the same sticky status bit as a genuine memory fault.
 That is a mapping decision, not an oversight, but distinguishing the two
 would need its own event source.
 
-## 9. Two lint findings fixed rather than waived
+## 9. Turning on C broke four things, and only one was the RTL
+
+Wiring `if_align` into the fetch path and letting the toolchain emit
+compressed instructions surfaced four failures. Three were in the tests
+and one was a trace artefact — the fetch path itself was right.
+
+**The trace, not the core.** The first co-simulation mismatched on every
+instruction: Spike reported `00004101` (`c.li x2,0`), the RTL reported
+`00000113` (`addi x2,x0,0`). PC and register writes agreed exactly. The
+retire trace was reporting the decompressor's *expansion* rather than
+what was fetched. A trace that rewrites `c.li` as `addi` disagrees with
+every reference model and misdescribes what is in memory, so it now
+reports the fetched encoding.
+
+**`misa` again, and this time the reference was wrong.** With C
+implemented the RTL sets bit 2; Spike told `zca_zcb` does not. For RV32
+without F or D the C extension *is* Zca, so the core is right and the
+ISA string was under-specified. Both now use
+`rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb`.
+
+**Every `mtvec` target must be explicitly 4-byte aligned.** `trap_test`
+hung: the trace ran `0x5c → 0x25c → back to 0`. `trap_handler` had
+landed at `0x25e` because the assembler no longer places labels on word
+boundaries once it can compress, and `mtvec`'s BASE field is bits
+[31:2] — so writing `0x25e` stores `0x25c`, and the core vectored two
+bytes early into the middle of an instruction. `mtvec` was still 0 at
+that point in the preamble, so the fault vectored to 0 and the program
+restarted for ever. Every handler now carries `.align 2`.
+
+**Patching by the word stops being safe.** The FENCE.I test overwrites
+one 32-bit word at `patch_target`, which meant "replace exactly the
+first instruction" only while that instruction was 32 bits. Compressed,
+`li a1,1` and `ret` both fit in that word, so the patch ate the return.
+The label is now pinned with `.option norvc`.
+
+**And one thing that is genuinely gone:** instruction-address-misaligned
+is unreachable with C. JALR clears bit 0 in hardware and JAL and branch
+immediates are always even, so no control transfer this core can execute
+raises cause 0. `trap_test`'s check for it is inverted: jump to a
+deliberately halfword-aligned target and require that it runs and does
+*not* trap. Asserting the absence of an exception is the only honest
+form of that test once the exception cannot occur.
+
+## 10. Two lint findings fixed rather than waived
 
 - The PMP TOR lower bound for region 0 is a constant zero, so
   `req_addr >= 0` is always true and Verilator flagged the comparison as

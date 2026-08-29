@@ -222,6 +222,7 @@ fail:
     sw   a0, 0(t0)
 8:  j    8b
 
+    .align 2                     /* mtvec BASE is bits [31:2] */
 trap_handler:
     csrr t6, mepc
     addi t6, t6, 4

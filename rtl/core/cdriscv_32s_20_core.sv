@@ -74,10 +74,21 @@ module cdriscv_32s_20_core
   // ------------------------------------------------------------------
   // Fetch stage
   // ------------------------------------------------------------------
+  // The prefetcher delivers whole words; the realigner turns them into
+  // instructions at 16-bit granularity and expands Zca/Zcb.
+  logic        word_valid;
+  logic [31:0] word_rdata;
+  logic [31:0] word_pc;
+  logic        word_err;
+  logic        word_ready;
+
   logic        instr_valid;
-  logic [31:0] instr_rdata;
+  logic [31:0] instr_rdata;      // 32 bits, expanded
+  logic [31:0] instr_raw;        // as fetched, for mtval
   logic [31:0] instr_pc;
   logic        instr_err;
+  logic        instr_illegal_c;  // illegal compressed encoding
+  logic        instr_compressed;
   logic        instr_ready;
 
   logic        redirect;
@@ -90,17 +101,37 @@ module cdriscv_32s_20_core
       .fetch_en_i     (fetch_enable_i),
       .redirect_i     (redirect),
       .redirect_pc_i  (redirect_pc),
-      .instr_valid_o  (instr_valid),
-      .instr_rdata_o  (instr_rdata),
-      .instr_pc_o     (instr_pc),
-      .instr_err_o    (instr_err),
-      .instr_ready_i  (instr_ready),
+      .instr_valid_o  (word_valid),
+      .instr_rdata_o  (word_rdata),
+      .instr_pc_o     (word_pc),
+      .instr_err_o    (word_err),
+      .instr_ready_i  (word_ready),
       .instr_req_o    (instr_req_o),
       .instr_gnt_i    (instr_gnt_i),
       .instr_rvalid_i (instr_rvalid_i),
       .instr_addr_o   (instr_addr_o),
       .instr_rdata_i  (instr_rdata_i),
       .instr_err_i    (instr_err_i)
+  );
+
+  cdriscv_32s_20_if_align u_if_align (
+      .clk_i             (clk_i),
+      .rst_ni            (rst_ni),
+      .redirect_i        (redirect),
+      .redirect_pc_i     (redirect_pc),
+      .word_valid_i      (word_valid),
+      .word_rdata_i      (word_rdata),
+      .word_pc_i         (word_pc),
+      .word_err_i        (word_err),
+      .word_ready_o      (word_ready),
+      .instr_valid_o     (instr_valid),
+      .instr_rdata_o     (instr_rdata),
+      .instr_pc_o        (instr_pc),
+      .instr_err_o       (instr_err),
+      .instr_illegal_o   (instr_illegal_c),
+      .instr_compressed_o(instr_compressed),
+      .instr_raw_o       (instr_raw),
+      .instr_ready_i     (instr_ready)
   );
 
   // ------------------------------------------------------------------
@@ -209,7 +240,9 @@ module cdriscv_32s_20_core
     unique case (op_b_sel)
       OP_B_RS2:  operand_b = rs2_data;
       OP_B_IMM:  operand_b = imm;
-      OP_B_FOUR: operand_b = 32'd4;
+      // PC + 2 for a compressed jump: c.jal and c.jalr link the
+      // address after a 2-byte instruction.
+      OP_B_FOUR: operand_b = instr_compressed ? 32'd2 : 32'd4;
       default:   operand_b = imm;
     endcase
   end
@@ -318,7 +351,8 @@ module cdriscv_32s_20_core
   end
 
   logic instr_misalign;
-  assign instr_misalign = ctrl_transfer && (target_pc[1:0] != 2'b00);
+  // IALIGN is 16 with Zca implemented, so only bit 0 must be clear.
+  assign instr_misalign = ctrl_transfer && (target_pc[0] != 1'b0);
 
   // ---- CSR -----------------------------------------------------------
   logic [31:0] csr_rdata, csr_wdata;
@@ -348,10 +382,13 @@ module cdriscv_32s_20_core
         exc_valid = 1'b1;
         exc_cause = EXC_INSTR_FAULT;
         exc_tval  = instr_pc;
-      end else if (illegal_instr_dec || csr_illegal) begin
+      end else if (illegal_instr_dec || csr_illegal || instr_illegal_c) begin
         exc_valid = 1'b1;
         exc_cause = EXC_ILLEGAL_INSTR;
-        exc_tval  = instr_rdata;
+        // mtval holds the encoding that faulted.  For a compressed
+        // instruction that is the 16-bit halfword, not the 32-bit
+        // expansion the decoder was handed.
+        exc_tval  = instr_raw;
       end else if (ecall) begin
         exc_valid = 1'b1;
         exc_cause = EXC_ECALL_M;
@@ -592,7 +629,11 @@ module cdriscv_32s_20_core
   assign core_sleep_o   = (state_q == ST_SLEEP);
   assign retire_valid_o = retire;
   assign retire_pc_o    = instr_pc;
-  assign retire_instr_o = instr_rdata;
+  // The retire trace reports the instruction as it was fetched, not the
+  // decompressor's expansion: a trace that rewrote c.li as addi would
+  // disagree with every reference model and would misdescribe what is
+  // actually in memory.
+  assign retire_instr_o = instr_raw;
 
   logic unused_ok;
   assign unused_ok = |{mstatus_mie, lsu_busy, md_busy, rf_we_dec};

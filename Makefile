@@ -33,7 +33,7 @@ CROSS      ?= riscv64-unknown-elf-
 CC         := $(CROSS)gcc
 OBJCOPY    := $(CROSS)objcopy
 OBJDUMP    := $(CROSS)objdump
-ARCH       := rv32im_zba_zbb_zbs_zicsr_zifencei
+ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
 ABI        := ilp32
 
 .PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
@@ -240,7 +240,7 @@ block: block-alu block-ecc block-multdiv block-clkmon block-20
 # instruction streams.  SPIKE can be overridden; the default is where
 # scripts/build_spike.sh installs it.
 SPIKE      ?= /headless/verif-tools/spike/bin/spike
-COSIM_ARCH := rv32im_zba_zbb_zbs_zicsr_zifencei
+COSIM_ARCH := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
 COSIM_SRC  := verif/core/cosim_isa.S
 COSIM_LD   := verif/core/link_cosim.ld
 

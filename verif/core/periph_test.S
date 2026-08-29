@@ -250,6 +250,7 @@ fail:
      * Trap handler.  Interrupts set a bit in s2 and silence their
      * source; exceptions skip the faulting instruction.
      * ------------------------------------------------------------------ */
+    .align 2                     /* mtvec BASE is bits [31:2] */
 trap_handler:
     csrr t6, mcause
     bltz t6, irq_path           /* mcause[31] set => interrupt */

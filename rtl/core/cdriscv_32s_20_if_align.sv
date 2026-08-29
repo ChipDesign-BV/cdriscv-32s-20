@@ -71,6 +71,11 @@ module cdriscv_32s_20_if_align (
     output logic        instr_err_o,
     output logic        instr_illegal_o,    // illegal compressed encoding
     output logic        instr_compressed_o,
+    // The instruction exactly as it was fetched, before expansion.  mtval
+    // for an illegal instruction must hold the encoding that faulted, and
+    // for a compressed one that is the 16-bit halfword, not the 32-bit
+    // expansion the rest of the core sees.
+    output logic [31:0] instr_raw_o,
     input  logic        instr_ready_i
 );
 
@@ -132,6 +137,7 @@ module cdriscv_32s_20_if_align (
   always_comb begin
     instr_valid_o      = emit_straddle || emit_compressed || emit_full;
     instr_rdata_o      = word_rdata_i;
+    instr_raw_o        = word_rdata_i;
     instr_pc_o         = hw_pc;
     instr_err_o        = word_err_i;
     instr_illegal_o    = 1'b0;
@@ -139,6 +145,7 @@ module cdriscv_32s_20_if_align (
 
     if (emit_straddle) begin
       instr_rdata_o      = {word_rdata_i[15:0], strad_data_q};
+      instr_raw_o        = {word_rdata_i[15:0], strad_data_q};
       instr_pc_o         = strad_pc_q;
       // Two code words cover this instruction; either failing makes it
       // untrustworthy.
@@ -146,6 +153,7 @@ module cdriscv_32s_20_if_align (
       instr_compressed_o = 1'b0;
     end else if (emit_compressed) begin
       instr_rdata_o      = dec_instr;
+      instr_raw_o        = {16'b0, hw};
       instr_illegal_o    = dec_illegal;
       instr_compressed_o = 1'b1;
     end

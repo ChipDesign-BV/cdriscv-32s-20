@@ -216,7 +216,17 @@ unexpected:
      * "return 2". */
     .align 2
 patch_target:
+    /* Kept uncompressed on purpose.  The patch above writes one 32-bit
+       word over this label, which is only "replace exactly the first
+       instruction" while the first instruction is 32 bits.  Let the
+       assembler compress it and `li a1,1` plus `ret` both fit in that
+       word -- the patch then eats the return and execution runs on into
+       whatever follows.  Self-modifying code that patches by the word
+       stops being safe the moment instruction length varies. */
+    .option push
+    .option norvc
     li   a1, 1
+    .option pop
     ret
 
     .align 2

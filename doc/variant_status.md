@@ -119,11 +119,14 @@ Largest first.
    its checker is not in the access path, so they would not be
    meaningful yet. Zcb still has no architectural tests upstream at all
    and will need directed tests.
-3. **Zca/Zcb are not in the fetch path.** `decompress` and `if_align` are
-   written and verified, but nothing instantiates them: the IF stage
-   still fetches whole words. Wiring them in also means widening `mepc`
-   handling in the core and re-examining the ECC story, because a
-   straddling instruction is covered by *two* SEC-DED code words.
+3. **Zca/Zcb are in the fetch path.** `if_align` sits between the
+   word-level prefetcher and decode; `misa` now reports C. The core
+   changed with it: a compressed jump links PC+2 rather than PC+4,
+   IALIGN is 16 so a control transfer to a halfword address is legal,
+   an illegal compressed encoding traps with `mtval` holding the 16-bit
+   encoding rather than the expansion, and the retire trace reports the
+   instruction as fetched. Co-simulation against Spike matches on
+   programs that are ~30 % compressed.
 4. **Zcmp is not written and cannot go in the decompressor.**
    `cm.push`/`cm.pop`/`cm.popret` expand to a *variable-length sequence*
    of loads and stores plus a stack adjustment, not to one 32-bit

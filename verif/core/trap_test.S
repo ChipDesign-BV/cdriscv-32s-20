@@ -200,17 +200,23 @@ r10: li  a0, 11
     li   t0, CAUSE_SFAULT
     bne  s8, t0, fail
 
-/* --- 11: instruction address misaligned ----------------------------
- * With IALIGN=32 a control transfer target with bit 1 set is
- * misaligned.  jalr clears bit 0 only.
+/* --- 11: instruction address misaligned is UNREACHABLE with C -------
+ * With IALIGN=16 a target with bit 1 set is perfectly legal, and jalr
+ * clears bit 0 in hardware, so no control transfer this core can
+ * execute produces cause 0.  The check is therefore inverted: jump to
+ * the halfword-aligned target and require that it runs and does NOT
+ * trap.  Asserting the absence of an exception is the only honest form
+ * of this test once the exception cannot occur.
  */
+    li   s5, 0                   /* trap witness                       */
     la   s7, r11
-    la   t1, aligned_target
-    addi t1, t1, 2
+    la   t1, halfword_target
     jalr ra, t1, 0
 r11: li  a0, 12
-    li   t0, CAUSE_IMISALIGN
-    bne  s8, t0, fail
+    bne  s5, zero, fail          /* nothing may have trapped           */
+    li   a0, 30
+    li   t0, 0x5eed
+    bne  s6, t0, fail            /* and the target really executed     */
 
 /* --- 12: instruction access fault ---------------------------------- */
     la   s7, r12
@@ -255,7 +261,18 @@ fail:
 aligned_target:
     ret
 
+/* A target deliberately at a halfword, not word, boundary: the c.nop
+   before it moves the label two bytes off the word grid.  Legal with
+   IALIGN=16; it was cause 0 before C. */
+    .align 2
+    c.nop
+halfword_target:
+    li   s6, 0x5eed
+    ret
+
+    .align 2                     /* mtvec BASE is bits [31:2] */
 trap_handler:
+    li   s5, 1                   /* trap witness for check 11         */
     csrr s8, mcause
     csrr s9, mtval
     csrr s10, mepc

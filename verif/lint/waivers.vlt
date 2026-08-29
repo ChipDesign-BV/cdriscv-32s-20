@@ -118,3 +118,22 @@ lint_off -rule UNUSEDSIGNAL -file "*cdriscv_32s_20_csr.sv" -match "*req*"
 // and will shrink as the bench grows.
 // ---------------------------------------------------------------------
 lint_off -rule UNUSEDSIGNAL -file "*tb_cdriscv_subsys.sv"
+
+// ---------------------------------------------------------------------
+// Zca/Zcb fetch path.  Three deliberate partial uses:
+//
+//  * if_align reads only redirect_pc_i[1] -- which half of the word the
+//    redirect lands on.  The rest of the target is the prefetcher's
+//    business, and it gets the same signal.
+//  * if_align reads only word_pc_i[31:2]; the low two bits of a word
+//    address are zero by construction, and the halfword offset comes
+//    from its own position counter, not from the bus.
+//  * the decompressor's immediate helpers take a 32-bit value and place
+//    the field each format actually has, so every format leaves some
+//    bits of the argument unread.  Making the argument per-format would
+//    mean six near-identical functions.
+// ---------------------------------------------------------------------
+lint_off -rule UNUSEDSIGNAL -file "*cdriscv_32s_20_if_align.sv" -match "*redirect_pc_i*"
+lint_off -rule UNUSEDSIGNAL -file "*cdriscv_32s_20_if_align.sv" -match "*word_pc_i*"
+lint_off -rule UNUSEDSIGNAL -file "*cdriscv_32s_20_decompress.sv"
+
