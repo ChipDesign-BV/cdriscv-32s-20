@@ -153,9 +153,16 @@ Largest first.
    would need a separate event source.
 6. **CLINT, E2E and the JTAG TAP are not instantiated** by the subsystem.
    The existing `timer` and `irq_ctrl` still serve it.
-7. **The single-cycle multiplier is not in the core.** `multdiv` still
-   is, because it also does division; using `mult` means splitting the
-   two paths.
+7. **The single-cycle multiplier is in the core.** The two paths are
+   split on `md_op[2]`, which separates the four multiplies from the four
+   divides — one reason the operator encoding is kept identical to
+   funct3. A multiply no longer visits `ST_WAIT_MD` at all; only a divide
+   stalls the pipeline. Measured: the smoke program fell from 348 to 315
+   cycles and the trap test from 596 to 563, both exactly 33 cycles,
+   which is the sequential unit's own constant latency, and both contain
+   one multiply. The cost is a combinational 33×33 multiplier on the
+   writeback path; whether the 40 ns period absorbs it is a question for
+   the next hardening run, not for simulation.
 8. **No physical implementation exists.** Nothing has been through
    synthesis-to-GDS for this variant, so there is no area, timing, DRC or
    LVS result. Variant 1's numbers are not a prediction: this core has a

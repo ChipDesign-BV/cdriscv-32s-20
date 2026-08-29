@@ -263,7 +263,28 @@ module cdriscv_32s_20_core
   // Multiply / divide
   // ------------------------------------------------------------------
   logic        md_req, md_busy, md_valid;
-  logic [31:0] md_result;
+  logic [31:0] md_result;      // from the sequential divider
+  logic [31:0] mul_result;     // from the single-cycle multiplier
+  logic        md_is_mul;
+
+  // md_op_e is the M-extension funct3: 0..3 are the multiplies, 4..7 the
+  // divides.  Bit 2 separates them, which is why the encoding is worth
+  // keeping identical to funct3.
+  assign md_is_mul = ~md_op[2];
+
+  if (RV32M) begin : g_mult
+    // Single-cycle 33x33.  Multiplies no longer visit ST_WAIT_MD at all;
+    // only the divides do.  The cost is a combinational multiplier on the
+    // writeback path, which the 40 ns period absorbs.
+    cdriscv_32s_20_mult u_mult (
+        .operator_i  (md_op),
+        .operand_a_i (rs1_data),
+        .operand_b_i (rs2_data),
+        .result_o    (mul_result)
+    );
+  end else begin : g_no_mult
+    assign mul_result = 32'b0;
+  end
 
   if (RV32M) begin : g_multdiv
     cdriscv_32s_20_multdiv u_multdiv (
@@ -459,7 +480,9 @@ module cdriscv_32s_20_core
   // ---- start / completion of multi-cycle operations -------------------
   logic start_lsu, start_md;
   assign start_lsu = instr_exec && !take_irq && !take_exc && lsu_req_dec;
-  assign start_md  = instr_exec && !take_irq && !take_exc && md_req_dec;
+  // Multiplies complete combinationally, so only a divide starts the
+  // sequential unit and only a divide stalls the pipeline.
+  assign start_md  = instr_exec && !take_irq && !take_exc && md_req_dec && !md_is_mul;
 
   assign lsu_req = start_lsu;
   assign md_req  = start_md;
@@ -529,7 +552,7 @@ module cdriscv_32s_20_core
       WB_ALU: rf_wdata = alu_result;
       WB_LSU: rf_wdata = lsu_rdata;
       WB_CSR: rf_wdata = csr_rdata;
-      WB_MD:  rf_wdata = md_result;
+      WB_MD:  rf_wdata = md_is_mul ? mul_result : md_result;
       default:rf_wdata = alu_result;
     endcase
   end
