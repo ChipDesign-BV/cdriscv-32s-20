@@ -13,6 +13,12 @@ runs/
 # RISCOF: the architectural test suite is ~1.7 GB and is fetched with
 # `riscof arch-test --clone`, not vendored here.  riscof_work is run
 # output.
+# The suite is 1.7 GB and is fetched, not vendored.  Match it with and
+# without a trailing slash: a local checkout is a directory, but pointing
+# at an existing checkout elsewhere makes it a symlink, and the
+# directory form does not match one.  A symlink here was committed once
+# -- it held an absolute path into one machine's filesystem.
+verif/riscof/riscv-arch-test
 verif/riscof/riscv-arch-test/
 verif/riscof/arch-test-3.5.3/
 verif/riscof/riscof_work/
