@@ -137,6 +137,16 @@ Largest first.
 
 ---
 
+## 3a. What the benches found
+
+Five of the nine new modules had real RTL defects, and two more had
+defects in the bench rather than the design. The write-ups — the HINT
+class of decompressor bugs, the binutils reference traps, the three bench
+races and the two lint findings fixed rather than waived — are in
+[verification_findings_20.md](verification_findings_20.md).
+
+---
+
 ## 4. Reading the inherited documentation
 
 `doc/` is carried over from variant 1 and describes variant 1. Where a

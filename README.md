@@ -56,7 +56,9 @@ describe different things.
 > untouched" a measured statement rather than an intention.
 >
 > Per-module status, including what each new block still needs, is in
-> [doc/variant_status.md](doc/variant_status.md).
+> [doc/variant_status.md](doc/variant_status.md); what the benches
+> actually found is in
+> [doc/verification_findings_20.md](doc/verification_findings_20.md).
 
 
 ## What it is
@@ -190,4 +192,6 @@ here, because they compare against an implementation that is already
 signed off rather than against a model written alongside the DUT.
 
 What each remaining item needs is enumerated in
-[doc/variant_status.md](doc/variant_status.md).
+[doc/variant_status.md](doc/variant_status.md), and the defects the new
+benches found — five of nine modules had real ones — are written up in
+[doc/verification_findings_20.md](doc/verification_findings_20.md).
