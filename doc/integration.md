@@ -32,7 +32,7 @@ standard is claimed.
 | Timing constraints | `verif/sta/cdriscv_32s_20_subsys.sdc` | three-corner, see §8 |
 | Verification suite | `verif/`, `Makefile` | 40+ targets; `make lint sim block cosim riscof formal coverage fi gate` |
 | Boot example | `tb/sw/start.S` | register zeroing, BIST, safety configuration |
-| Evidence | `doc/verification_findings.md` | V0–V45, every number's provenance |
+| Evidence | `doc/verification_findings.md` | V0–V52, every number's provenance |
 
 ### 0.2 Integration checklist
 
@@ -223,14 +223,23 @@ the March C- memory BIST.
 
 ## 8. Physical integration (RTL2GDS)
 
-![Hardened `cdriscv_32s_20_subsys_hard` — 1.90 mm square on IHP SG13G2. The two
-yellow bands are the TCM macros (I-TCM bottom, D-TCM top): two wide
-`2048x32` data parts and one narrower `4096x8` parity part each. The
-standard-cell logic is the dense band between them; the pale blue field
-is fill and decap.](img/cdriscv_32s_20_subsys_gds.png)
+![Hardened `cdriscv_32s_20_subsys_hard` — 1330 x 2521 um on IHP SG13G2, the
+signed-off 25 MHz configuration. The two yellow bands are the TCM macros
+(I-TCM bottom, D-TCM top): two wide `2048x32` data parts and one
+narrower `4096x8` parity part each. The standard-cell logic is the
+purple field between them, and the vertical blue strips down both edges
+are the power straps. The die is exactly one macro row wide plus 179 um
+of margin, which is what makes it 7.1 % smaller than the square that
+holds the same
+logic.](img/cdriscv_32s_20_subsys_gds.png)
 
-Numbers below are from the reference run in `flow/`; see
-`flow/config_dense.json` for the exact configuration.
+Numbers below are from the signed-off main configuration,
+`flow/config.json`. The earlier square floorplan
+(`flow/config_dense.json`, 1.90 mm, also signed off) is retained as the
+more conservative starting point for a different macro set: the
+rectangle's advantage comes entirely from these six macros filling two
+full-width rows, and it does not transfer to a floorplan whose macros do
+not.
 
 ### 8.1 The flow
 
@@ -293,9 +302,22 @@ code word in a 64-bit row wastes 25 bits of every row (39 %), while
 macro is 4096 deep so it needs no bank select — and no `2048x8` part,
 which the PDK does not offer.
 
-The reference run uses a **1.90 × 1.90 mm die at 66.1 % utilisation**;
-budget the macros as fixed at **1.34 mm²** for 32 KiB of ECC-protected
-TCM.
+The signed-off run uses a **1330 × 2521 µm die** (3.353 mm²) at 58.7 %
+placement utilisation, 71.7 % once the antenna diodes are placed. Budget
+the macros as fixed at **1.34 mm²** for 32 KiB of ECC-protected TCM —
+40 % of that die.
+
+**Shape the die around the macro row.** The six macros want two rows the
+full width of the die, so the die should be one macro row wide and two
+macro rows tall plus the logic. Here that is 1151 µm of macros plus
+179 µm of margin. Against a square holding the same logic this is 7.1 %
+less area at the same frequency, and it is not geometry: die area is
+instance area over utilisation, and the aspect ratio does not appear in
+that. What changes is the utilisation the placer can *achieve* — 0.445
+on the square against 0.587 here — because a square leaves four corner
+regions it fills badly and a rectangle leaves two contiguous bands. The
+advantage is a property of *these* macros filling full-width rows and
+does not transfer to a floorplan whose macros do not.
 
 Three placement lessons are worth inheriting.
 
@@ -314,10 +336,20 @@ with `N`.
 **The density limit is antenna-diode legalisation, not congestion.**
 At 1.82 mm the router sat at 19 % usage with **zero overflow on every
 layer** while 29 `ANTENNA_*` cells had nowhere to go, and the run
-failed. This design draws ~44 000 antenna cells and each must sit
+failed. This design draws ~46 700 antenna cells and each must sit
 beside the pin it protects, so what binds is *local* free sites. A
 design can be entirely uncongested and still have nowhere to put a
-diode. The floor sits between 1.82 and 1.90 mm.
+diode.
+
+The floor is now bracketed tightly: **3.312 mm² fails and 3.353 mm²
+signs off** — 1.2 % apart in area, 0.008 apart in utilisation. Treat it
+as a cliff, not a gradient: the flow either finds sites for ~46 700
+diodes or it does not, and a clean congestion report says nothing about
+which.
+
+**Frequency is not the lever.** A run at half the clock period changed
+standard-cell area by 0.1 %. The clock is not what consumes the area on
+this design; the die shape is worth far more.
 
 ### 8.3 Power delivery
 
@@ -342,20 +374,13 @@ closes at all three corners:
 
 | Corner | Setup WS | Hold WS | TNS |
 |---|---|---|---|
-| slow 1.08 V / 125 °C | +3.16 ns | +0.73 ns | 0 |
+| slow 1.08 V / 125 °C | +2.698 ns | +0.704 ns | 0 |
 | typ 1.20 V / 25 °C | +14.02 ns | +0.36 ns | 0 |
 | fast 1.32 V / −40 °C | +20.14 ns | +0.15 ns | 0 |
 
-**50 MHz is also demonstrated** (V50): setup +0.061 ns at slow, hold
-+0.132 ns at fast, TNS 0, DRC clean and LVS matching, on a 2.10 mm
-square die at 54 % utilization. It needs the I-TCM macros flipped to
-`FS` and the IF read pointer replicated. **Design against 25 MHz**: at
-50 MHz the margin is 61 ps, which is 0.3 % of the period, and the STA
-reads a single nominal RC corner.
-
 **Sign off setup at slow, hold at fast, and check typical too.** That
-ordering is not pedantry: the first hardening run met 20 ns at the
-typical corner and missed it **by 9 ns at slow**, where 3 636
+ordering is not pedantry: an early hardening run met its constraint at
+the typical corner and missed it **by 9 ns at slow**, where 3 636
 register-to-register paths failed. A single-corner analysis had
 reported the design "closed". All three corners are in
 `verif/sta/cdriscv_32s_20_subsys.sdc` and in `make fmax`.
@@ -425,7 +450,7 @@ is dead on arrival (finding V42).
 ```sh
 cd flow
 librelane --manual-pdk --pdk-root $PDK_ROOT \
-          --run-tag <tag> config_dense.json
+          --run-tag <tag> config.json
 ```
 
 `--manual-pdk` matters: without it LibreLane tries to *download* a PDK

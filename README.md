@@ -43,7 +43,7 @@ describe different things.
 > |---|---|---|
 > | Lint, whole subsystem | clean, hard gate | `make lint` |
 > | Base block benches | pass | `make block` |
-> | New block benches | pass, **2 040 038 checks** | `make block-20` |
+> | New block benches | pass, **2 040 039 checks** | `make block-20` |
 > | Subsystem smoke simulation | pass | `make sim` |
 > | Safety, peripherals, traps, register walk | pass | `make safety periph trap regwalk` |
 >
@@ -133,9 +133,8 @@ cdriscv-32s-20 and none of variant 1's physical results describe it.
 That matters more than it looks: this variant's core carries a wider ALU
 operator, the bit-manipulation datapath and an instantiated PMP checker,
 so its area, congestion and critical path are all different from the
-numbers variant 1 measured. Variant 1 closed 25 MHz on a 1.90 mm square
-die and 50 MHz on a 2.10 mm square die; **neither figure is a prediction
-for this design.**
+numbers variant 1 measured. Variant 1's signed-off die is 1330 × 2521 µm
+at 25 MHz; **that figure is not a prediction for this design.**
 
 ```sh
 cd flow && librelane --manual-pdk --pdk-root $PDK_ROOT config.json
@@ -152,7 +151,7 @@ For variant 1's measured physical results, see
 * [doc/integration.md](doc/integration.md) — integration manual: deliverables, checklist, ports, clocking, reset, CDC, boot, safety hooks, DFT, physical implementation
 * [doc/safety_manual.md](doc/safety_manual.md) — mechanisms, assumptions of use, remaining gaps
 * [doc/verification_plan.md](doc/verification_plan.md) — the objectives and their results
-* [doc/verification_findings.md](doc/verification_findings.md) — the evidence log, V0–V44
+* [doc/verification_findings.md](doc/verification_findings.md) — the evidence log, V0–V52
 * [doc/fmeda.md](doc/fmeda.md) — FMEDA: measured populations and coverage, assumed rates, derived metrics
 
 ## Building
@@ -177,7 +176,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 |------|-------|----------|
 | Lint & structure | **clean** | `make lint lint-tb`, hard gate; waivers argued in [verif/lint/waivers.vlt](verif/lint/waivers.vlt) |
 | Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, mul/div, clock monitor, TCM, IF-stage equivalence |
-| New block benches | **pass, 2 040 038 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
+| New block benches | **pass, 2 040 039 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
 | Architectural suite | **114 of 114 pass**, 29 of them B | `make riscof` against Spike; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
 | Co-simulation vs Spike | **running** | retargeted and extended to emit Zba/Zbb/Zbs; the 10⁹ marathon is in progress, so O2 is not yet met |

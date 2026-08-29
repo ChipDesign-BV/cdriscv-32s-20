@@ -53,9 +53,9 @@ anything in the RTL.
 | `decompress` | `block-decompress` | 65 536 | 7/7 | **binutils**, over every 16-bit encoding |
 | `if_align` | `block-if-align` | 101 317 | 9/9 | byte-stream walker written from the ISA rule alone |
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
-| `csr` | `block-csr-equiv` | 400 017 | 10/10 | **variant 1's CSR file**, in lockstep |
+| `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 
-`make block-20` runs all ten: **2 040 038 checks**.
+`make block-20` runs all ten: **2 040 039 checks**.
 
 ### The two equivalence benches
 
