@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- configuration register parity guard.
+// cdriscv-32s-20 -- configuration register parity guard.
 //
 // V29 measured that every safety mechanism in this subsystem is armed
 // by a register and not one of those registers was protected: an upset
@@ -27,9 +27,9 @@
 //    all -- a self-clearing enable would otherwise raise a permanent
 //    false error the first time it cleared itself.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
+// repository's O1-O7 gate.  That gate does NOT carry over -- see
+// README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- top level of the core subsystem.
+// cdriscv-32s-20 -- top level of the core subsystem.
 //
 //   core (single or dual core lockstep)
 //   +-- bus  --+-- I-TCM (SEC-DED, BIST)
@@ -21,9 +21,9 @@
 // peripherals and their status registers standing, so the software can
 // find out afterwards why it restarted.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 
@@ -84,6 +84,16 @@ module cdriscv_32s_20_subsys
     input  logic [31:0] ext_prdata_i,
     input  logic        ext_pready_i,
     input  logic        ext_pslverr_i,
+
+    // JTAG (IEEE 1149.1) -- own clock domain, see cdriscv_32s_20_jtag_tap.
+    // tdo_oe_o is the pad output enable: TDO is only driven during the
+    // shift states, so several TAPs can share a chain.
+    input  logic        tck_i,
+    input  logic        tms_i,
+    input  logic        tdi_i,
+    input  logic        trst_ni,
+    output logic        tdo_o,
+    output logic        tdo_oe_o,
 
     // status and trace
     output logic        core_sleep_o,
@@ -694,7 +704,82 @@ module cdriscv_32s_20_subsys
 
   assign reset_req = sfty_reset_req || wdog_reset_req;
 
+  // ---- JTAG TAP and its observation window ------------------------
+  //
+  // Three pieces, in two clock domains: the 1149.1 TAP on tck, the
+  // read-only window on clk, and a closed-loop toggle handshake between
+  // them.  The TAP reaches the window and nothing else -- it is not a
+  // master on cdriscv_32s_20_bus and cannot write anything.  See
+  // cdriscv_32s_20_dbg_win for why that boundary is where it is.
+  //
+  // trst_ni is the TAP's own asynchronous reset and is deliberately NOT
+  // rst_n_sync: 1149.1 requires the test logic to be resettable
+  // independently of the system, and a debugger has to be able to reach
+  // the window while the system reset is asserted.
+
+  logic [31:0] jtag_dbg_addr, jtag_dbg_wdata, jtag_dbg_rdata;
+  logic        jtag_dbg_req, jtag_dbg_we;
+
+  cdriscv_32s_20_jtag_tap u_jtag_tap (
+      .tck_i       (tck_i),
+      .tms_i       (tms_i),
+      .tdi_i       (tdi_i),
+      .tdo_o       (tdo_o),
+      .tdo_oe_o    (tdo_oe_o),
+      .trst_ni     (trst_ni),
+      .dbg_addr_o  (jtag_dbg_addr),
+      .dbg_wdata_o (jtag_dbg_wdata),
+      .dbg_req_o   (jtag_dbg_req),
+      .dbg_we_o    (jtag_dbg_we),
+      .dbg_rdata_i (jtag_dbg_rdata)
+  );
+
+  logic        dbg_acc, dbg_acc_we;
+  logic [31:0] dbg_acc_addr, dbg_acc_wdata, dbg_acc_rdata;
+  logic        dbg_busy;
+
+  cdriscv_32s_20_dbg_bridge u_dbg_bridge (
+      .tck_i       (tck_i),
+      .trst_ni     (trst_ni),
+      .dbg_addr_i  (jtag_dbg_addr),
+      .dbg_wdata_i (jtag_dbg_wdata),
+      .dbg_req_i   (jtag_dbg_req),
+      .dbg_we_i    (jtag_dbg_we),
+      .dbg_rdata_o (jtag_dbg_rdata),
+      .dbg_busy_o  (dbg_busy),
+
+      .clk_i       (clk_i),
+      .rst_ni      (rst_n_sync),
+      .acc_o       (dbg_acc),
+      .acc_addr_o  (dbg_acc_addr),
+      .acc_wdata_o (dbg_acc_wdata),
+      .acc_we_o    (dbg_acc_we),
+      .acc_rdata_i (dbg_acc_rdata)
+  );
+
+  cdriscv_32s_20_dbg_win #(
+      .NumIntFaults (NUM_INT_FAULTS),
+      .NumExtFaults (NUM_EXT_FAULTS)
+  ) u_dbg_win (
+      .clk_i          (clk_i),
+      .rst_ni         (rst_n_sync),
+      .acc_i          (dbg_acc),
+      .acc_addr_i     (dbg_acc_addr),
+      .acc_wdata_i    (dbg_acc_wdata),
+      .acc_we_i       (dbg_acc_we),
+      .acc_rdata_o    (dbg_acc_rdata),
+      .core_sleep_i   (core_sleep_o),
+      .fault_any_i    (fault_any_o),
+      .err_pin_i      (err_pin_o),
+      .reset_req_i    (reset_req_o),
+      .fault_int_i    (fault_int),
+      .fault_ext_i    (fault_ext_i),
+      .retire_valid_i (retire_valid_o),
+      .retire_pc_i    (retire_pc_o),
+      .retire_instr_i (retire_instr_o)
+  );
+
   logic unused_sigs;
-  assign unused_sigs = |{f_out_en, pstrb};
+  assign unused_sigs = |{f_out_en, pstrb, dbg_busy};
 
 endmodule

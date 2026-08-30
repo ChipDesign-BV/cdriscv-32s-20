@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- JTAG TAP, without pulp-platform/riscv-dbg.
+// cdriscv-32s-20 -- JTAG TAP, without pulp-platform/riscv-dbg.
 //
 // riscv-dbg is the usual way to get RISC-V external debug, but it
 // brings a large third-party codebase that would have to be qualified
@@ -25,7 +25,9 @@
 // core domain goes through cdriscv_32s_20_sync, as variant 1 does for its
 // reference-domain signals.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

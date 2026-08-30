@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- windowed watchdog, APB slave.
+// cdriscv-32s-20 -- windowed watchdog, APB slave.
 //
 //   0x00  CTRL     RW  [0] enable  [1] window mode  [2] lock (sticky)
 //                      [3] reset request enable
@@ -20,9 +20,9 @@
 // frozen until the next reset, so a corrupted program cannot disable
 // the watchdog.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
+// repository's O1-O7 gate.  That gate does NOT carry over -- see
+// README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

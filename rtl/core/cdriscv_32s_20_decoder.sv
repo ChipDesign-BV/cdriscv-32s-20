@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- instruction decoder.
+// cdriscv-32s-20 -- instruction decoder.
 //
 // Variant 1's decoder plus Zba, Zbb and Zbs.  Everything the base
 // RV32IM_Zicsr_Zifencei decoder did is reproduced exactly, and the new
@@ -31,7 +31,9 @@
 // and their rs2 field is an opcode extension, not a register.  rs2_used
 // is therefore left low for them, which matters for hazard interlocks.
 //
-// STATUS: variant 2, not integrated, not part of any signoff gate.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

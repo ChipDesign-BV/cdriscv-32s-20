@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- machine-mode CSR file.
+// cdriscv-32s-20 -- machine-mode CSR file.
 //
 // Variant 1's CSR file plus the PMP registers and a halfword-aligned
 // mepc.  As with the decoder, the property that matters is that the
@@ -36,7 +36,9 @@
 // and pmpcfg1 only.  They read as zero and ignore writes, which is what
 // WARL permits and what software probing the region count expects.
 //
-// STATUS: variant 2, not integrated, not part of any signoff gate.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

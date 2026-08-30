@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- end-to-end (E2E) bus protection.
+// cdriscv-32s-20 -- end-to-end (E2E) bus protection.
 //
 // The TCMs in variant 1 are ECC-protected *inside* the memory: a word
 // is encoded on the way in and checked on the way out, so a fault in
@@ -24,7 +24,9 @@
 // Reuses the (39,32) Hsiao code the TCMs already use, so the same
 // generator, the same proof and the same block-level bench apply.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified but NOT instantiated by the subsystem.
+// What stops it is integration ripple, not the block -- see
+// doc/variant_status.md, section 3.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

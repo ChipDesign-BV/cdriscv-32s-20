@@ -74,6 +74,9 @@ module tb_fi;
       .ext_psel_o (ext_psel), .ext_penable_o (ext_penable), .ext_paddr_o (ext_paddr),
       .ext_pwrite_o (ext_pwrite), .ext_pwdata_o (ext_pwdata), .ext_pstrb_o (),
       .ext_prdata_i (32'b0), .ext_pready_i (1'b1), .ext_pslverr_i (1'b0),
+      // JTAG parked; trst_ni low so the tck domain resets to 0, not X
+      .tck_i (1'b0), .tms_i (1'b0), .tdi_i (1'b0), .trst_ni (1'b0),
+      .tdo_o (), .tdo_oe_o (),
       .core_sleep_o (), .retire_valid_o (), .retire_pc_o (), .retire_instr_o ()
   );
 

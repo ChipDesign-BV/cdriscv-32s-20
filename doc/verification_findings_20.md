@@ -348,3 +348,185 @@ A third was inherited and **wrong**: variant 1's waiver file claimed
 `mepc` is word aligned because IALIGN is 32, and cited a planning
 document that no longer exists. In this variant IALIGN is 16 and bit 1 is
 significant. The waiver was replaced, not carried forward.
+
+## 12. The guard that was left pointing the wrong way
+
+§6 ends with a rule and a guard: `misa` reports what is implemented, and
+the CSR equivalence bench "asserts it stays clear until then, so the
+guard fails if anyone sets it early."
+
+The guard worked. What was never done is turn it round.
+
+Commit `4415f3b`, *"zca/zcb: into the fetch path, and misa reports C"*,
+set bit 2 in `cdriscv_32s_20_csr.sv` and did not touch
+`verif/block/csr/tb_csr_equiv.sv`, which still read:
+
+```systemverilog
+expect_eq(b_rdata, {2'b01, 4'b0, 26'h000_1102}, "misa (I+M+B, not C)");
+if (b_rdata[2] !== 1'b0) begin
+  $display("[FAIL] misa advertises C while if_align is not instantiated");
+```
+
+So from that commit onwards `make block` **failed**, on exactly the
+check that had been written to protect the rule — 2 mismatches out of
+400 018, phase A clean and phase B red. It was found while re-running the
+full regression before an unrelated change, not by anyone running it
+after the commit that broke it.
+
+Two things are worth separating here, because they have different fixes.
+
+**The bench was right and the design was right.** Nothing shipped wrong.
+C genuinely is implemented, `misa` genuinely should report it, and the
+bench genuinely should have been updated in the same commit. The check
+now reads the other way — it fails if C is *absent* — because
+advertising less than is implemented is as wrong as advertising more,
+and a guard with no direction is not a guard.
+
+**The regression was not run.** That is the real finding. A block
+regression that takes minutes had been red for several commits, and the
+work that followed it — the 10⁹ instruction marathon, the hardening run —
+was all done on top. None of it is invalidated: those exercise the
+design, and the design was correct. But the same silence would have
+covered a defect, and the marathon in §10 is a reminder of how much
+machine time gets spent on top of an assumption nobody re-checked.
+
+The rule from §10 was *a campaign is only evidence for the revision it
+ran against*. This is its neighbour: **a guard is only evidence if
+someone runs it.** A guard whose expectation has gone stale does not go
+quiet — it goes red, which is better — but only if the harness is
+actually executed.
+
+## 13. Two of three clock domains were signed off unconstrained
+
+LibreLane's built-in `base.sdc` constrains exactly one clock, and prints
+a warning saying so:
+
+```
+[WARNING] Multi-clock files are not currently supported by the base SDC
+file. Only the first clock will be constrained.
+```
+
+This design has more than one. `ref_clk_i` is the clock monitor's
+independent reference — the whole point of which is that it is *not* the
+system clock, because a monitor clocked by the clock it watches cannot
+report that clock's failure. In the `v2first` signoff run it was
+constrained as a **data input**:
+
+```tcl
+set_input_delay 8.0000 -clock [get_clocks {clk_i}] -add_delay [get_ports {ref_clk_i}]
+set_driving_cell sg13g2_buf_4 ... [get_ports {ref_clk_i}]
+```
+
+The consequences are visible in the final netlist. Its 107 flip-flops are
+clocked through
+
+```
+ref_clk_i -> input83 -> fanout7111 -> fanout7102 -> fanout7094 -> 107 flops
+```
+
+`fanout*` cells are the resizer's max-fanout repair, not CTS. The domain
+got a **buffer chain instead of a clock tree**, and no timing check at
+all — because OpenROAD was never told it was a clock.
+
+**This did not fail. It reported nothing, which reads as a pass.** That
+is the whole hazard: every gate in the signoff table was green, and one
+of them was green because it was empty.
+
+`flow/cdriscv_32s_20.sdc` now constrains all three domains — `clk_i`,
+`ref_clk_i` and the new `tck_i` — and declares them mutually
+asynchronous, which is what every crossing already assumes (they all go
+through `cdriscv_32s_20_sync_lvl` or `cdriscv_32s_20_pulse_sync`).
+
+**How bad was it, really?** Worth measuring rather than asserting.
+Applying the new constraints to the *existing* signoff database:
+
+| | |
+|---|---|
+| Registers now timed on `ref_clk_i` | **107** (was 0) |
+| Worst setup slack in that domain | **+36.8 ns** against a 40 ns period |
+| Worst path arrival | 3.10 ns |
+| Recovery on `ref_rst_ni` | +31.2 ns |
+
+So the circuit was never in danger at 25 MHz — the reference domain is a
+handful of counters with a 3 ns critical path. The defect was in the
+**evidence**, not the silicon. That distinction is worth keeping: the
+fix does not rescue a broken design, it replaces an unexamined claim
+with an examined one. It would not have stayed harmless at a higher
+frequency, on a larger reference domain, or if someone had put logic
+there believing it was being checked.
+
+Two smaller notes for anyone maintaining the file:
+
+* The real variable is `FALLBACK_SDC` (`FALLBACK_SDC_FILE`,
+  `BASE_SDC_FILE` and `SDC_FILE` are deprecated aliases). An SDC that
+  `source`s LibreLane's own `base.sdc` through `$::env(BASE_SDC_FILE)`
+  gets an unset-variable error.
+* The file is self-contained rather than layered on `base.sdc`. Its path
+  is an internal detail of the installed LibreLane version, and a
+  constraint file that changes silently when the tool is upgraded is not
+  a signoff artefact.
+
+## 14. The JTAG debug path: three findings, none of them in the TAP
+
+The TAP itself was already block-verified (§ the `block-jtag` bench, 21
+checks, 7/7 mutants). Putting it into the subsystem needed two new
+blocks — a clock-domain bridge and the window it reaches — and all three
+findings came from those.
+
+**Lint found an address aliasing bug, not an unused signal.** Verilator
+reported `Bits of signal are not used: 'acc_addr_i'[31:8]`. Read as a
+lint nit that is a waiver; read as a design statement it says the window
+decodes only the low byte, so its six registers are **mirrored across
+every 256-byte page** of the debug address space. A debugger reading a
+wrong address would get a plausible answer — IDCODE at 0x8000_0000 —
+instead of the poison value. The decode now covers all 32 bits. The
+mutation run confirms the bench sees the difference: restoring the
+low-byte decode is killed.
+
+**The bench had the same race, twice found.** `dbg_access` waited for
+`dbg_busy` to fall without first waiting for it to rise, which returns
+immediately — the `busy_q` non-blocking update has not landed at the
+point the `wait` is evaluated. Every read then returned the *previous*
+transaction's data, and the failure log is unmistakable in hindsight:
+each expected value appearing one line late, IDCODE showing up as the
+answer to the FAULTINT read. This is the third bench race in this
+repository (§4 has the other two) and the same shape each time.
+
+**One mutant survives, and it is reported rather than rounded away.**
+9 of 10. The survivor moves the bridge's acknowledge a cycle earlier, so
+it is sent in the same cycle the read data is captured rather than one
+after. It survives because the acknowledge still crosses a two-stage
+synchroniser, and in zero-delay RTL simulation two synchroniser stages
+always outlast a same-cycle register write. The extra stage is a
+**timing** margin — it earns its keep when two tck edges are shorter than
+one system clock period — and functional simulation is the wrong
+instrument for it. Two earlier attempts at that mutant were worse: one
+was `ack_pulse <= 1'b0; if (acc_strobe) ack_pulse <= 1'b1;`, which is
+*literally* `ack_pulse <= acc_strobe` under non-blocking semantics, and
+counting it as a survivor would have blamed the bench for an
+equivalent mutant. **A surviving mutant is a claim about the bench, so
+it is worth being sure the mutant is a real difference first.**
+
+### What the crossing is, and what it is not
+
+The bridge is a closed-loop toggle handshake in both directions. Address
+and write data are written in the tck domain *before* the request toggle
+is sent and held until the acknowledge returns, so they are static for
+the whole window in which the destination could sample them; the read
+data is symmetric.
+
+The consequence is that there is **no tck:clk ratio assumption**. That
+matters because the usual alternative — "TCK must be slower than the
+core clock" — is easy to state, easy to violate on a bench, and
+impossible to check in silicon. The bench runs the identical read
+sequence at three ratios (tck at 1/7, at 1/1, and at 3.3× the system
+clock) and requires the same answers; the fast-tck phase is the one that
+would fail on a design that quietly assumed a slow TCK.
+
+What the TAP reaches is six read-only words. It cannot halt the core,
+single-step, or read memory, because doing any of that makes it a second
+master on `cdriscv_32s_20_bus` — needing arbitration against the core,
+and turning the debug port into a fault-injection path the FMEDA would
+have to account for and the product would have to disable in the field.
+That argument is not made here, so the window is read-only **by
+construction**, not by configuration.

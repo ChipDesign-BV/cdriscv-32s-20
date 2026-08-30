@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- physical memory protection.
+// cdriscv-32s-20 -- physical memory protection.
 //
 // Machine-mode PMP to the privileged specification: NRegions entries,
 // each an 8-bit pmpcfg and a 34-bit-equivalent pmpaddr (RV32 stores
@@ -25,7 +25,9 @@
 //  * NAPOT decodes the trailing ones of pmpaddr to a size; NA4 is the
 //    degenerate 4-byte case.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

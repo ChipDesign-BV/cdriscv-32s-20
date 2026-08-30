@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- ALU with Zba / Zbb / Zbs.
+// cdriscv-32s-20 -- ALU with Zba / Zbb / Zbs.
 //
 // Variant 1's ALU covered the base RV32I operations.  This adds the 27
 // bit-manipulation operations of the B extension as ratified
@@ -13,7 +13,9 @@
 // are written as explicit reduction trees rather than loops so the
 // synthesised depth is predictable.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

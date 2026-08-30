@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- safety controller (fault collection and reaction unit).
+// cdriscv-32s-20 -- safety controller (fault collection and reaction unit).
 //
 // Every fault source in the subsystem ends here.  Each source has one
 // sticky status bit and a configurable reaction: interrupt, reset
@@ -54,9 +54,9 @@
 // working entirely -- a stuck-at fault on the pin itself no longer
 // looks healthy.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
+// repository's O1-O7 gate.  That gate does NOT carry over -- see
+// README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

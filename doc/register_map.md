@@ -1,15 +1,22 @@
-# cdriscv-32s-10 register map
+# cdriscv-32s-20 register map
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
+> **This document describes cdriscv-32s-20.** It began as variant 1's and
+> has been revised for this variant — the port list, the clock domains,
+> the register map and the assumptions of use are this design's. What it
+> does **not** carry is variant 1's evidence: no signoff gate is met in
+> this repository, and any measured figure quoted from variant 1 is
+> labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
-> **Status: not verified yet — do not use yet.** The addresses and bit
-> assignments below describe the RTL as written; none of them has been
-> checked against a simulation.
+> **Status.** The peripheral registers are exercised by simulation —
+> `make regwalk` walks the map, and `make periph ams rdback safety` drive
+> the individual blocks — so the addresses and access types below are
+> checked rather than merely written down. The CSR section is checked
+> harder still: `make block-csr-equiv` runs this CSR file in lockstep
+> against variant 1's for 400 018 cycles. What is *not* established is
+> everything above the register level; see
+> [variant_status.md](variant_status.md).
 
 ## 1. Address map
 
@@ -226,3 +233,42 @@ read or write of the containing word.
 
 Source assignment: bit 0 is the safety controller interrupt, bit 1 the
 AMS interface interrupt, bits 15:2 are `irq_i[13:0]` from the SoC.
+
+## 10. JTAG observation window
+
+This one is **not on the system bus** and software cannot reach it. It is
+addressed over the JTAG TAP's private debug bus (`cdriscv_32s_20_jtag_tap`
+instructions `IR_DBG_ADDR` = `0x8` and `IR_DBG_DATA` = `0x9`) and read by
+an external debugger. It is listed here because it is a register
+interface of the part, not because firmware uses it.
+
+All six words are **read-only**. A write is accepted by the bus and
+discarded — there is no writable state behind this window at all.
+
+| Offset | Name | Description |
+|--------|------|-------------|
+| `0x00` | `IDCODE` | `0x0CD1_507B` — same value the TAP's IDCODE DR returns, so a scan can confirm it is talking to the window rather than to a floating bus |
+| `0x04` | `STATUS` | [0] `core_sleep` [1] `fault_any` [2] `err_pin` [3] `reset_req` [4] `retire_seen` |
+| `0x08` | `FAULTINT` | internal fault vector, as the safety controller sees it (16 bits) |
+| `0x0c` | `FAULTEXT` | external fault vector, `fault_ext_i` (16 bits) |
+| `0x10` | `LASTPC` | PC of the last retired instruction |
+| `0x14` | `LASTINSN` | its encoding — 16-bit for a compressed instruction, as `retire_instr_o` presents it |
+
+Any other address, including anything above `0x17` and any address with
+a non-zero bit above [7:0], reads `0xffff_ffff`. That is a deliberate
+poison value rather than zero: every register above can legitimately read
+zero, so zero cannot also mean "no such address".
+
+`LASTPC` and `LASTINSN` are **held** from the last cycle the core
+retired, not sampled live, so a scan taken after the core has stopped or
+parked still reports what it last executed.
+
+**What the window cannot do** is as much a part of its specification as
+what it can. It cannot halt the core, single-step it, read memory, or
+write anything. Reaching memory would make the TAP a second master on
+`cdriscv_32s_20_bus`, which needs arbitration against the core and turns
+the debug port into a fault-injection path that has to be accounted for
+in the FMEDA and disabled in the field. That argument is not made, so
+the window is read-only by construction rather than by configuration.
+A standard OpenOCD RISC-V configuration will **not** attach: this is not
+the RISC-V Debug specification's DM register map.

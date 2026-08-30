@@ -109,6 +109,15 @@ module tb_sdf_subsys;
       .ext_prdata_i   (ext_prdata),
       .ext_pready_i   (ext_pready),
       .ext_pslverr_i  (ext_pslverr),
+      // JTAG parked: no debugger attached.  trst_ni is tied LOW on
+      // purpose -- with it high and tck idle the tck-domain flops are
+      // never clocked and stay X for the whole run.
+      .tck_i          (1'b0),
+      .tms_i          (1'b0),
+      .tdi_i          (1'b0),
+      .trst_ni        (1'b0),
+      .tdo_o          (),
+      .tdo_oe_o       (),
       .core_sleep_o   (core_sleep),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),

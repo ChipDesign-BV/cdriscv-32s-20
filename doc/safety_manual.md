@@ -1,20 +1,28 @@
-# cdriscv-32s-10 safety manual (draft)
+# cdriscv-32s-20 safety manual (draft)
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
+> **This document describes cdriscv-32s-20.** It began as variant 1's and
+> has been revised for this variant — the port list, the clock domains,
+> the register map and the assumptions of use are this design's. What it
+> does **not** carry is variant 1's evidence: no signoff gate is met in
+> this repository, and any measured figure quoted from variant 1 is
+> labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
-> **Status: verified for project use — not qualified for safety-critical
-> use.**
+> **Status: not qualified for safety-critical use, and in this variant
+> not yet verified to a gate at all.**
 >
-> This document is a *draft outline* of a safety manual. Since it was
-> first written the position has moved: the O1–O7 verification gate is
-> met (2026-08-24), fault-injection campaigns have been run, diagnostic
-> coverage has been measured, and an FMEDA exists — SPFM 99.6 %, LFM
-> 91.4 % (V44, [fmeda.md](fmeda.md)).
+> This document is a *draft outline* of a safety manual. The mechanisms
+> it describes are real and are implemented here; the *evidence* behind
+> them is not. In variant 1 the O1–O7 gate is met (2026-08-24),
+> fault-injection campaigns have been run, diagnostic coverage has been
+> measured, and an FMEDA exists — SPFM 99.6 %, LFM 91.4 % (V44,
+> [fmeda.md](fmeda.md)). **Every one of those figures was measured on
+> variant 1's netlist and none has been reproduced here**, where the
+> core carries a wider ISA, a PMP checker and a JTAG port that variant 1
+> does not have. Coverage, fault injection and the FMEDA are listed as
+> not re-run in [variant_status.md](variant_status.md), and that is the
+> status that governs this variant.
 >
 > None of that is certification. The FMEDA rests on **assumed** base
 > failure rates, because no foundry FIT data exists for this design;
@@ -95,8 +103,28 @@ validated.
   mechanism in this IP.
 * **AoU-9** Scan chains, if inserted, must not create a path that
   bypasses the lockstep comparator in functional mode.
-* **AoU-10** The subsystem has no protection against malicious software:
-  privilege separation, PMP and memory protection are not implemented.
+* **AoU-10** The subsystem has no privilege separation — machine mode
+  only — so it offers no protection against *malicious* software. PMP is
+  implemented and gates data accesses, which bounds an erroneous access;
+  it does not bound a hostile one, because M-mode software can rewrite
+  any entry it has not locked. Instruction fetch is not yet checked.
+* **AoU-11** The JTAG port is an **observation** interface. It exposes
+  six read-only words — IDCODE, a status word, the two fault vectors and
+  the last retired PC and encoding — and cannot halt the core,
+  single-step it, read memory or write anything; that is a property of
+  the RTL, not a configuration setting, so it cannot be relaxed by
+  accident. Two things still follow for the integrator:
+
+  - Those six words disclose execution state. If the last retired PC and
+    instruction are sensitive in your product, gate `tck_i` or omit the
+    pins at chip level.
+  - **Tie `trst_ni` low when no debugger is fitted.** It is the TAP
+    domain's asynchronous reset; left high with `tck_i` idle, the tck
+    flip-flops are never clocked and never initialised.
+
+  If the window is ever widened to reach the bus, this AoU stops being
+  sufficient: a debug port that can write TCM is a fault-injection path
+  and has to be accounted for in the FMEDA and disabled in the field.
 
 ## 4. Fault reaction
 

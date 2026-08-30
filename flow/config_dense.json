@@ -32,12 +32,17 @@
     "dir::../rtl/periph/cdriscv_32s_20_timer.sv",
     "dir::../rtl/periph/cdriscv_32s_20_irq_ctrl.sv",
     "dir::../rtl/periph/cdriscv_32s_20_ams_if.sv",
+    "dir::../rtl/debug/cdriscv_32s_20_jtag_tap.sv",
+    "dir::../rtl/debug/cdriscv_32s_20_dbg_bridge.sv",
+    "dir::../rtl/debug/cdriscv_32s_20_dbg_win.sv",
     "dir::../rtl/cdriscv_32s_20_subsys.sv",
     "dir::cdriscv_32s_20_subsys_hard.sv"
   ],
   "CLOCK_PORT": "clk_i",
   "CLOCK_NET": "clk_i",
   "CLOCK_PERIOD": 40,
+  "FALLBACK_SDC": "dir::cdriscv_32s_20.sdc",
+  "//sdc": "LibreLane's base.sdc constrains only the first clock and says so. This design has three (clk_i, ref_clk_i, tck_i); in the v2first run the other two were signed off with no constraint at all and ref_clk_i's 107 flops got a fanout-repair buffer chain instead of a CTS tree. flow/cdriscv_32s_20.sdc constrains all three and declares them asynchronous.",
   "PL_TARGET_DENSITY_PCT": 58,
   "MACROS": {
     "RM_IHPSG13_1P_2048x32_c2_bm_bist": {

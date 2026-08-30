@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- OBI-like slave to APB3 master bridge.
+// cdriscv-32s-20 -- OBI-like slave to APB3 master bridge.
 //
 // The peripheral window is 4 KiB, split into sixteen 256-byte slots
 // selected by paddr[11:8].  Slot 15 is exported so that the SoC can
@@ -11,9 +11,9 @@
 // Peripherals are word registers only: byte enables are passed through
 // on PSTRB but a peripheral is free to ignore them.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
+// repository's O1-O7 gate.  That gate does NOT carry over -- see
+// README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

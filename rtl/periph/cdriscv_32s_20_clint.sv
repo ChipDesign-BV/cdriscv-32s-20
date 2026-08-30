@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- CLINT (core-local interruptor).
+// cdriscv-32s-20 -- CLINT (core-local interruptor).
 //
 // Variant 1 already implemented the CLINT's *function* -- a 64-bit
 // mtime/mtimecmp pair with spec-correct level interrupt semantics, plus
@@ -28,7 +28,9 @@
 // it would cost ~8 points of LFM, because it is what took latent faults
 // in the peripheral configuration from 46.4 % to zero.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified but NOT instantiated by the subsystem.
+// What stops it is integration ripple, not the block -- see
+// doc/variant_status.md, section 3.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

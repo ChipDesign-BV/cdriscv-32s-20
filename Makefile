@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
 ABI        := ilp32
 
-.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-dbg block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -187,6 +187,16 @@ block-clint: $(BUILD)/tb_clint.vvp
 $(BUILD)/tb_jtag.vvp: rtl/debug/cdriscv_32s_20_jtag_tap.sv verif/block/jtag/tb_jtag.sv | $(BUILD)
 	$(IVERILOG) -g2012 -o $@ -s tb_jtag $^
 
+$(BUILD)/tb_dbg.vvp: rtl/common/cdriscv_32s_20_sync.sv \
+                    rtl/debug/cdriscv_32s_20_dbg_bridge.sv \
+                    rtl/debug/cdriscv_32s_20_dbg_win.sv \
+                    verif/block/dbg/tb_dbg.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_dbg $^
+
+block-dbg: $(BUILD)/tb_dbg.vvp
+	$(VVP) $< | tee $(BUILD)/block_dbg.log
+	@grep -q "PASS" $(BUILD)/block_dbg.log
+
 block-jtag: $(BUILD)/tb_jtag.vvp
 	$(VVP) $< | tee $(BUILD)/block_jtag.log
 	@grep -q "PASS" $(BUILD)/block_jtag.log
@@ -230,7 +240,7 @@ block-csr-equiv: $(BUILD)/tb_csr_equiv.vvp
 	$(VVP) $< | tee $(BUILD)/block_csr_equiv.log
 	@grep -q "PASS" $(BUILD)/block_csr_equiv.log
 
-block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag \
+block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-dbg \
           block-decompress block-if-align block-decoder-equiv block-csr-equiv
 
 block: block-alu block-ecc block-multdiv block-clkmon block-20

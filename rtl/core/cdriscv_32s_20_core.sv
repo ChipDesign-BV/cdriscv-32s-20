@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- RV32IM_Zicsr_Zifencei core, machine mode only.
+// cdriscv-32s-20 -- RV32IM_Zicsr_Zifencei core, machine mode only.
 //
 // Two stages: fetch (cdriscv_32s_20_if_stage) and a combined
 // decode/execute/memory/writeback stage driven by the small FSM below.
@@ -10,9 +10,9 @@
 // structure a safety analysis (FMEDA) has to reason about stays small
 // and every instruction has a bounded, statically known latency.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

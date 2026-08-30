@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- fast multiplier.
+// cdriscv-32s-20 -- fast multiplier.
 //
 // Variant 1 multiplies iteratively, sharing a shift-and-add datapath
 // with the divider: 32 cycles for any MUL.  Here the multiply is a
@@ -22,7 +22,9 @@
 // that is the largest single block in the core, and it is why the
 // multiplier is a variant-2 option rather than a variant-1 change.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

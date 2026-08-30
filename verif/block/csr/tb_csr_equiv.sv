@@ -240,13 +240,20 @@ module tb_csr_equiv;
     irq_s=0; irq_t=0; irq_e=0; ev_rf=0; ev_il=0; ev_bus=0; ev_ls=0;
     @(posedge clk); #1;
 
-    // --- misa reports I, M, B -- and NOT C, because the fetch path
-    //     cannot yet deliver compressed instructions ---
+    // --- misa reports I, M, B and C ---
+    //
+    // C was deliberately withheld until the fetch path could actually
+    // deliver a compressed instruction; if_align is now between the
+    // prefetcher and decode, so the bit is set.  The check is kept the
+    // way round it always was -- misa must agree with what the fetch
+    // path can do -- only the answer has changed.  It reads C as
+    // present and fails if it is absent, because advertising less than
+    // is implemented is as wrong as advertising more.
     do_read(A_MISA);
-    expect_eq(b_rdata, {2'b01, 4'b0, 26'h000_1102}, "misa (I+M+B, not C)");
+    expect_eq(b_rdata, {2'b01, 4'b0, 26'h000_1106}, "misa (I+M+B+C)");
     checks = checks + 1;
-    if (b_rdata[2] !== 1'b0) begin
-      $display("[FAIL] misa advertises C while if_align is not instantiated");
+    if (b_rdata[2] !== 1'b1) begin
+      $display("[FAIL] misa withholds C while if_align is instantiated");
       errors = errors + 1;
     end
     expect_eq(a_rdata, {2'b01, 4'b0, 26'h000_1100}, "v1 misa (I+M)");

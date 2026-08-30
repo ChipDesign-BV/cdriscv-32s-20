@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- Zca / Zcb decompressor.
+// cdriscv-32s-20 -- Zca / Zcb decompressor.
 //
 // Expands a 16-bit compressed instruction into the equivalent 32-bit
 // one.  Purely combinational and stateless: everything in Zca and Zcb
@@ -23,7 +23,9 @@
 // encoding, and what a fetch from erased memory looks like), reserved
 // encodings, and RV64-only forms that must trap on RV32.
 //
-// STATUS: NEW AND UNVERIFIED -- not through the O1-O9 gate.  Do not use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

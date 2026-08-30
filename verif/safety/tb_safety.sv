@@ -86,6 +86,15 @@ module tb_safety;
       .ext_prdata_i   (32'b0),
       .ext_pready_i   (1'b1),
       .ext_pslverr_i  (1'b0),
+      // JTAG parked: no debugger attached.  trst_ni is tied LOW on
+      // purpose -- with it high and tck idle the tck-domain flops are
+      // never clocked and stay X for the whole run.
+      .tck_i          (1'b0),
+      .tms_i          (1'b0),
+      .tdi_i          (1'b0),
+      .trst_ni        (1'b0),
+      .tdo_o          (),
+      .tdo_oe_o       (),
       .core_sleep_o   (),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),

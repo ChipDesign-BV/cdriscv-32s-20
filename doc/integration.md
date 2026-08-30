@@ -1,10 +1,12 @@
-# cdriscv-32s-10 integration manual
+# cdriscv-32s-20 integration manual
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
+> **This document describes cdriscv-32s-20.** It began as variant 1's and
+> has been revised for this variant — the port list, the clock domains,
+> the register map and the assumptions of use are this design's. What it
+> does **not** carry is variant 1's evidence: no signoff gate is met in
+> this repository, and any measured figure quoted from variant 1 is
+> labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
 Everything an SoC team needs to instantiate, constrain, harden, boot
@@ -48,6 +50,8 @@ Work top to bottom; each item names the section that explains it.
 - [ ] Watchdog serviced from exactly one place in the control loop — §5
 - [ ] STATUS bit 13 handler implemented (configuration parity) — §6.1
 - [ ] Interrupt and fault input widths matched, unused inputs tied low — §1
+- [ ] `trst_ni` tied **low** if no debugger is fitted; JTAG pins routed or omitted deliberately — §1, AoU-11
+- [ ] All three clocks constrained, and declared mutually asynchronous — §2
 - [ ] DFT strategy chosen: scan insertion is **not** included — §7.3
 - [ ] Timing signed off at the **slow** corner, not just typical — §8.2
 
@@ -76,16 +80,30 @@ Work top to bottom; each item names the section that explains it.
 | `atest_sel_o` | out | 4 | analog test bus selection |
 | `ana_flag_i` | in | 4 | analog comparator / supervisor flags, asynchronous |
 | `ext_p*` | in/out | | APB3 expansion port, peripheral slot 15 |
+| `tck_i` | in | 1 | JTAG test clock — its own clock domain, see §2 |
+| `tms_i` | in | 1 | JTAG mode select |
+| `tdi_i` | in | 1 | JTAG data in |
+| `trst_ni` | in | 1 | JTAG asynchronous test reset, active low. **Tie low if no debugger is fitted** — it resets the TAP domain, and leaving it high with `tck_i` idle leaves those flops uninitialised |
+| `tdo_o` | out | 1 | JTAG data out |
+| `tdo_oe_o` | out | 1 | TDO pad output enable — TDO is only driven in the shift states, so several TAPs can share a chain |
 | `core_sleep_o` | out | 1 | core is in WFI |
 | `retire_valid_o`, `retire_pc_o`, `retire_instr_o` | out | 1, 32, 32 | retire trace, for debug and for an external monitor |
 
 ## 2. Clocking
 
-* `clk_i` — everything except the measurement part of the clock monitor.
+Three domains:
+
+* `clk_i` — everything except the two below.
 * `ref_clk_i` — the measurement part of the clock monitor only. It must
   come from an oscillator independent of `clk_i` (see AoU-1).
+* `tck_i` — the JTAG TAP. Free running, asynchronous to both, and
+  **subject to no ratio constraint** relative to `clk_i`: the debug bus
+  crossing is a closed-loop handshake in both directions, and the block
+  bench runs the identical reads with `tck_i` slower than, equal to, and
+  faster than the system clock.
 
-Crossings, all inside `cdriscv_32s_20_clkmon` and the input synchronisers:
+Crossings, inside `cdriscv_32s_20_clkmon`, `cdriscv_32s_20_dbg_bridge`
+and the input synchronisers:
 
 | Signal | From | To | Structure |
 |--------|------|----|-----------|
@@ -95,11 +113,25 @@ Crossings, all inside `cdriscv_32s_20_clkmon` and the input synchronisers:
 | status clear pulse | `clk_i` | `ref_clk_i` | toggle pulse synchroniser |
 | fault level | `ref_clk_i` | `clk_i` | 2 flop level synchroniser |
 | result toggle + value | `ref_clk_i` | `clk_i` | toggle synchroniser, value captured after |
+| debug request toggle | `tck_i` | `clk_i` | toggle pulse synchroniser; address and write data held static across it |
+| debug acknowledge toggle | `clk_i` | `tck_i` | toggle pulse synchroniser; read data held static across it |
 | `irq_i`, `fault_ext_i`, `ana_flag_i` | async | `clk_i` | 2 flop level synchroniser |
 
 Constrain the synchroniser inputs as false paths (or with a maximum
 delay equal to one destination period) and keep the flop chains from
 being retimed or merged.
+
+**Constrain all three clocks.** This is not boilerplate — it was got
+wrong here. LibreLane's built-in `base.sdc` constrains only the first
+clock and warns that it does so; in the first hardening run `ref_clk_i`
+was therefore constrained as a *data input*, its 107 flip-flops were
+clocked through a chain of max-fanout repair buffers rather than a clock
+tree, and no timing check covered them. Nothing failed, because there
+was nothing to fail. `flow/cdriscv_32s_20.sdc` now creates all three
+clocks and declares them mutually asynchronous; §13 of
+[verification_findings_20.md](verification_findings_20.md) has the
+measurements. If you re-target this design, port that file, not the
+default.
 
 ## 3. Reset
 

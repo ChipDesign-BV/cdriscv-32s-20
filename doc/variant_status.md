@@ -18,20 +18,25 @@ relies on anything here.
 | `pkg` | `alu_op_e` widened 4 → 6 bits, 27 bitmanip operators added; PMP and E2E types; PMP CSR addresses | base operator encodings are **unchanged**, which is what lets the decoder be compared field for field against the frozen reference |
 | `alu` | Zba + Zbb + Zbs, 27 new operations | base ALU bench passes unchanged against it (453 840 vectors) |
 | `decoder` | Zba + Zbb + Zbs decode | equivalence-checked against variant 1's decoder |
-| `csr` | PMP registers; `mepc` halfword aligned; `misa` reports B (**not** C — the fetch path cannot yet deliver compressed instructions) | equivalence-checked against variant 1's CSR file |
+| `csr` | PMP registers; `mepc` halfword aligned; `misa` reports B **and C** | equivalence-checked against variant 1's CSR file |
 | `core` | wider operator, PMP checker instantiated | PMP resets to all-regions-off, so behaviour out of reset is identical to variant 1 |
 
-New modules, none of them yet in the subsystem's datapath:
+New modules. The **in** column says whether the subsystem instantiates
+it — a module that is written and block-verified but not wired up is not
+part of this design's behaviour, and the distinction is the point of this
+table:
 
-| Module | Purpose |
-|---|---|
-| `mult` | single-cycle 33×33 multiplier (the multi-cycle `multdiv` still serves the core) |
-| `pmp` | 8-region physical memory protection checker |
-| `decompress` | Zca/Zcb 16 → 32 bit expander |
-| `if_align` | 16-bit fetch granularity and straddle handling |
-| `clint` | standard timer / software interrupt controller |
-| `e2e` | end-to-end bus payload protection |
-| `jtag_tap` | IEEE 1149.1 TAP, no riscv-dbg dependency |
+| Module | Purpose | in |
+|---|---|---|
+| `mult` | single-cycle 33×33 multiplier, replacing `multdiv`'s multiply path | yes |
+| `pmp` | 8-region physical memory protection checker | yes, data accesses |
+| `decompress` | Zca/Zcb 16 → 32 bit expander | yes |
+| `if_align` | 16-bit fetch granularity and straddle handling | yes |
+| `jtag_tap` | IEEE 1149.1 TAP, no riscv-dbg dependency | yes |
+| `dbg_bridge` | tck ↔ system handshake for the TAP's debug bus | yes |
+| `dbg_win` | read-only observation window the TAP reaches | yes |
+| `clint` | standard timer / software interrupt controller | **no** |
+| `e2e` | end-to-end bus payload protection | **no** |
 
 ---
 
@@ -50,12 +55,23 @@ anything in the RTL.
 | `e2e` | `block-e2e` | 119 071 | defect found | fault-injection escape statistics, split by fault class |
 | `clint` | `block-clint` | 11 918 | 7/7 | independent register model |
 | `jtag_tap` | `block-jtag` | 21 | 7/7 | IEEE 1149.1 mandatory sequences |
+| `dbg_bridge` + `dbg_win` | `block-dbg` | 35 | 9/10 | the same reads at three tck:clk ratios |
 | `decompress` | `block-decompress` | 65 536 | 7/7 | **binutils**, over every 16-bit encoding |
 | `if_align` | `block-if-align` | 101 317 | 9/9 | byte-stream walker written from the ISA rule alone |
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 
-`make block-20` runs all ten: **2 040 039 checks**.
+`make block-20` runs all eleven: **2 040 074 checks**.
+
+The one surviving mutant in `block-dbg` is named rather than rounded
+away: moving the bridge's acknowledge a cycle earlier, so it is sent in
+the same cycle the read data is captured. It survives because the
+acknowledge still has to cross a two-stage synchroniser, which in
+zero-delay RTL simulation always outlasts a same-cycle register write.
+The extra stage is a **timing** margin — it matters when two tck edges
+are shorter than one system clock period — and a functional bench is the
+wrong instrument for it. A mutant that only static timing can kill is
+worth reporting as such, not counted as a kill.
 
 ### The two equivalence benches
 
@@ -78,8 +94,12 @@ addresses, word-aligned trap PCs, `mepc` writes with bit 1 clear — so it
 stays a strict equality check rather than a whitelist. The three
 deliberate differences are tested separately in phase B:
 
-1. `misa` reports B as well as I and M — and deliberately **not** C,
-   because Zca/Zcb are not in the fetch path yet;
+1. `misa` reports B and C as well as I and M. C was deliberately
+   withheld until the fetch path could deliver a compressed
+   instruction, and the bench guards the rule in whichever direction
+   currently applies: it now fails if C is *absent*. That guard was
+   left pointing the old way for several commits — see §12 of
+   [verification_findings_20.md](verification_findings_20.md);
 2. `mepc` keeps bit 1, because IALIGN is 16 once Zca exists — variant 1's
    waiver `V0-A5` named `mepc[1:0]` as "the exact bit that changes if Zca
    is added", and this is that change;
@@ -166,10 +186,10 @@ Largest first.
    `EXC_*_FAULT` causes. A software access violation therefore sets the
    same sticky status bit as a real memory fault. Distinguishing them
    would need a separate event source.
-6. **CLINT, E2E and the JTAG TAP are not instantiated** by the subsystem.
-   The existing `timer` and `irq_ctrl` still serve it. All three are
-   written and block-verified; what stops each is integration ripple
-   rather than the block:
+6. **CLINT and E2E are not instantiated** by the subsystem. The
+   existing `timer` and `irq_ctrl` still serve it. Both are written and
+   block-verified; what stops each is integration ripple rather than the
+   block:
 
    * **CLINT needs a window on the main bus, not an APB slot.** It
      decodes the *standard* RISC-V CLINT map — `msip` at offset 0x0000,
@@ -190,9 +210,27 @@ Largest first.
      here claimed that widening would shift the layout; it was written
      without checking and is wrong.
    * **E2E** inserts a generator and a checker into the bus datapath.
-   * **JTAG** adds pins to the subsystem's port list, which also moves
-     the hardening flow's pin placement — so it belongs *before* a
-     hardening run, not after.
+
+   **The JTAG TAP is now instantiated**, with six pins on the subsystem
+   (`tck_i`, `tms_i`, `tdi_i`, `trst_ni`, `tdo_o`, `tdo_oe_o`). What it
+   reaches is deliberately narrow, and the boundary is worth stating
+   plainly:
+
+   * `dbg_bridge` crosses the tck domain to the system domain with a
+     closed-loop toggle handshake in both directions. It needs no
+     assumption about the tck:clk ratio, and the bench proves that by
+     running the identical reads with tck slower than, equal to, and
+     faster than the system clock.
+   * `dbg_win` is **six read-only words**: IDCODE, a status word, the
+     two fault vectors, and the PC and encoding of the last retired
+     instruction. Writes are accepted by the bus and discarded.
+   * It **cannot** halt the core, single-step, or read memory. Doing any
+     of that makes the TAP a second master on `cdriscv_32s_20_bus`,
+     needing arbitration against the core, and turns the debug port into
+     a fault-injection path that the FMEDA would have to account for and
+     the product would have to disable in the field. That argument is
+     not made, so the window is read-only by construction rather than by
+     configuration.
 7. **The single-cycle multiplier is in the core.** The two paths are
    split on `md_op[2]`, which separates the four multiplies from the four
    divides — one reason the operator encoding is kept identical to

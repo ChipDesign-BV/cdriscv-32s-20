@@ -5,9 +5,11 @@ with higher performance.**
 
 This is **variant 2** of [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10).
 It starts from that design and adds a wider ISA (bit manipulation and
-compressed instructions), physical memory protection, end-to-end bus
-protection, a standard CLINT and a JTAG TAP. Variant 1 remains the
-signed-off configuration and is not modified by anything here.
+compressed instructions), physical memory protection and a JTAG TAP.
+End-to-end bus protection and a standard CLINT are written and
+block-verified but not yet in the subsystem — [doc/variant_status.md](doc/variant_status.md)
+says per module which is which. Variant 1 remains the signed-off
+configuration and is not modified by anything here.
 
 **On the name.** The `s` denotes what the part is *designed for*, not what
 it has been *certified as*. It is an architectural statement — dual-core
@@ -35,7 +37,7 @@ describe different things.
 > | 10⁹-instruction co-simulation vs Spike | **re-run and met** — 1 015 480 871 instructions, zero mismatches |
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence bench below |
 > | coverage, fault injection, FMEDA | **not re-run** — all measured on variant 1's netlist |
-> | RTL2GDS: DRC, LVS, timing closure | **not run** — no physical implementation of this variant exists |
+> | RTL2GDS: DRC, LVS, timing closure | **run and clean** — every gate passed on a 1440 × 2521 µm die, but on RTL that predates Zca/Zcb, the multiplier and the TAP; a re-harden with the complete design is what makes it describe this variant |
 >
 > What *has* been established in this repository, from runs in it:
 >
@@ -43,7 +45,7 @@ describe different things.
 > |---|---|---|
 > | Lint, whole subsystem | clean, hard gate | `make lint` |
 > | Base block benches | pass | `make block` |
-> | New block benches | pass, **2 040 039 checks** | `make block-20` |
+> | New block benches | pass, **2 040 074 checks** | `make block-20` |
 > | Subsystem smoke simulation | pass | `make sim` |
 > | Safety, peripherals, traps, register walk | pass | `make safety periph trap regwalk` |
 >
@@ -72,8 +74,7 @@ The design goal is not performance. It is that every structure in the
 subsystem is small enough to reason about, and that a fault in it is
 either detected by a mechanism that reports it, or bounded by one.
 
-* **Core** — `rv32im_zba_zbb_zbs_zicsr_zifencei` today, with
-  `_zca_zcb` written and block-verified but not yet in the fetch path.
+* **Core** — `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb`.
   Machine mode only, two stages, one
   instruction in the execute stage at a time. No forwarding, no
   speculation, no caches: every instruction has a statically known
@@ -115,7 +116,7 @@ either detected by a mechanism that reports it, or bounded by one.
 | [rtl/safety/](rtl/safety/) | lockstep, SEC-DED, safety controller, watchdog, clock monitor, memory BIST |
 | [rtl/bus/](rtl/bus/) | interconnect, TCM, APB bridge |
 | [rtl/periph/](rtl/periph/) | timer, interrupt controller, CLINT, AMS interface |
-| [rtl/debug/](rtl/debug/) | JTAG TAP (IEEE 1149.1, no riscv-dbg dependency) |
+| [rtl/debug/](rtl/debug/) | JTAG TAP (IEEE 1149.1, no riscv-dbg dependency), its clock-domain bridge and the read-only observation window it reaches |
 | [rtl/common/](rtl/common/) | clock domain crossing primitives |
 | [rtl/cdriscv_32s_20_subsys.sv](rtl/cdriscv_32s_20_subsys.sv) | subsystem top level |
 | [verif/ref/](verif/ref/) | **frozen** variant-1 modules, reference only for the equivalence benches |
@@ -176,7 +177,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 |------|-------|----------|
 | Lint & structure | **clean** | `make lint lint-tb`, hard gate; waivers argued in [verif/lint/waivers.vlt](verif/lint/waivers.vlt) |
 | Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, mul/div, clock monitor, TCM, IF-stage equivalence |
-| New block benches | **pass, 2 040 039 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
+| New block benches | **pass, 2 040 074 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
 | Architectural suite | **114 of 114 pass**, 29 of them B | `make riscof` against Spike; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
 | Co-simulation vs Spike | **O2 met** | 1 015 480 871 instructions, 27 000 programs, zero mismatches, against one frozen RTL revision — checked, not assumed |

@@ -1,16 +1,16 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 -- load/store unit.
+// cdriscv-32s-20 -- load/store unit.
 //
 // One outstanding transaction on a req/gnt/rvalid bus (OBI-like).
 // Misaligned accesses are not split: the core raises an address
 // misaligned exception instead, which keeps every data access single
 // beat and therefore bounded in time.
 //
-// STATUS: verified to the O1-O7 gate of doc/verification_plan.md
-//         (2026-08-24) -- may be used in a project.  O8-O9 and the
-//         FMEDA are open: NOT qualified for safety-critical use.
+// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
+// repository's O1-O7 gate.  That gate does NOT carry over -- see
+// README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

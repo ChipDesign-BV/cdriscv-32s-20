@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 ChipDesign B.V.
 // SPDX-License-Identifier: Apache-2.0
 //
-// cdriscv-32s-10 v2 -- instruction realignment and decompression.
+// cdriscv-32s-20 -- instruction realignment and decompression.
 //
 // Sits between the word-level prefetcher (which variant 1 already has,
 // and which is unchanged) and the decode stage.  It consumes a stream
@@ -43,7 +43,9 @@
 // trap redirect re-establishes alignment from `mepc`.  Nothing
 // mis-split is ever executed, but the mis-split does happen.
 //
-// STATUS: variant 2, not integrated, not part of any signoff gate.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 
