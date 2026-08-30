@@ -314,10 +314,15 @@ total is an accumulation across two designs, and **no single design was
 run for 10⁹ instructions.**
 
 An objective is a statement about a design, not about a tool's uptime.
-Variant 1's O2 was a clean campaign against frozen RTL and this has to
+Variant 1's O2 was a clean campaign against frozen RTL and this had to
 match it, so the campaign was restarted from zero against a runner
-rebuilt from the current RTL, and O2 stays open until it completes end
-to end.
+rebuilt from the current RTL.
+
+**The re-run met it**: 1 015 480 871 instructions, 27 000 programs, 54
+batches, every batch 500/500, zero mismatches — runner built 00:17,
+batch 0 at 00:24, last batch 06:32, and no commit touched `rtl/` or
+`verif/core/` in between. Six hours of machine time to convert a number
+that looked like evidence into one that is.
 
 The general form is worth keeping: **a long-running campaign is only
 evidence for the revision it ran against.** If the design changes under

@@ -32,7 +32,7 @@ describe different things.
 > | What variant 1 established | State here |
 > |---|---|
 > | `riscv-arch-test`, 85 of 85 | **re-run and extended** — 114 of 114 now pass, including 29 B tests |
-> | 10⁹-instruction co-simulation vs Spike | **in progress** — harness retargeted, generator emits bitmanip |
+> | 10⁹-instruction co-simulation vs Spike | **re-run and met** — 1 015 480 871 instructions, zero mismatches |
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence bench below |
 > | coverage, fault injection, FMEDA | **not re-run** — all measured on variant 1's netlist |
 > | RTL2GDS: DRC, LVS, timing closure | **not run** — no physical implementation of this variant exists |
@@ -179,7 +179,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | New block benches | **pass, 2 040 039 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
 | Architectural suite | **114 of 114 pass**, 29 of them B | `make riscof` against Spike; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
-| Co-simulation vs Spike | **running** | retargeted and extended to emit Zba/Zbb/Zbs; the 10⁹ marathon is in progress, so O2 is not yet met |
+| Co-simulation vs Spike | **O2 met** | 1 015 480 871 instructions, 27 000 programs, zero mismatches, against one frozen RTL revision — checked, not assumed |
 | Formal | **not re-run** | variant 1's decoder proof was of variant 1's decoder |
 | Coverage, fault injection, FMEDA | **not re-run** | all measured on variant 1's netlist |
 | Gate level, timing, RTL2GDS | **not run** | no physical implementation of this variant exists |

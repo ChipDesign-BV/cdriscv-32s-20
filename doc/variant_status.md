@@ -102,27 +102,28 @@ have signed off both.
 
 Largest first.
 
-1. **O2 is NOT met, despite a completed 10⁹ campaign.** The marathon
-   reached its target — 1 015 491 890 instructions over 27 000 programs
-   in 54 batches, every batch 500/500, zero mismatches — but it spans
-   RTL revisions and therefore proves nothing about the design that
-   exists now.
+1. **O2 is met.** 1 015 480 871 instructions over 27 000 randomly
+   generated programs in 54 batches, every batch 500/500, zero
+   mismatches on retire PC, instruction, register writes and memory
+   writes, with memory grants held off on 30 % of cycles.
 
-   Batch 0 ran at 14:53. Zca/Zcb went into the fetch path at 18:31 and
-   the single-cycle multiplier at 19:38, with the co-simulation runner
-   rebuilt at 19:35. So roughly the first twenty batches exercised the
-   bitmanip-only core and the rest exercised the compressed one. The
-   count is an accumulation across two designs.
+   The campaign ran end to end against **one unchanging design**, and
+   that was checked rather than assumed: the co-simulation runner was
+   built at 00:17 from the current RTL, batch 0 started at 00:24, the
+   last batch finished at 06:32, and no commit touched `rtl/` or
+   `verif/core/` in between. The per-batch instruction counts sum
+   exactly to the reported cumulative.
 
-   That is a real result and it is not O2. Variant 1's objective was a
-   clean campaign against frozen RTL, and this has to be the same: the
-   marathon is restarted from zero on the current RTL, and O2 stays open
-   until 10⁹ instructions run end to end against one unchanging design.
+   That check exists because the first attempt failed it. An earlier
+   campaign reached the same target — 1 015 491 890 instructions, also
+   with zero mismatches — but spanned the Zca/Zcb and multiplier
+   changes, so no single design had been run for 10⁹ instructions. It
+   was discarded and restarted; the log is kept as
+   `build/o2_marathon_prev_rtl.log`. See §10 of
+   [verification_findings_20.md](verification_findings_20.md).
 
-   What *is* established on the current RTL: the directed ISA program
-   and 20 random programs match Spike over 153 982 instructions, with
-   and without 35 % memory back-pressure, on code that is roughly 30 %
-   compressed.
+   Comparable to variant 1's objective: 1 008 435 332 instructions over
+   27 500 programs.
 
 2. **The architectural suite runs and passes** — 114 of 114 selected
    tests, including all 29 `rv32i_m/B` tests, against Spike
