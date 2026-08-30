@@ -1,10 +1,12 @@
-# cdriscv-32s-10 programming manual
+# cdriscv-32s-20 programming manual
 
 > [!NOTE]
-> **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
+> **This document describes cdriscv-32s-20.** It began as variant 1's and
+> has been revised for this variant — the port list, the clock domains,
+> the register map and the assumptions of use are this design's. What it
+> does **not** carry is variant 1's evidence: no signoff gate is met in
+> this repository, and any measured figure quoted from variant 1 is
+> labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
 The firmware developer's view: what the machine looks like from
@@ -28,31 +30,52 @@ functional safety standard is claimed.
 
 | Property | Value |
 |----------|-------|
-| ISA | RV32IM, Zicsr, Zifencei |
-| Privilege | **machine mode only** — no U or S mode, no PMP, no virtual memory |
+| ISA | `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb` |
+| Privilege | **machine mode only** — no U or S mode, no virtual memory |
+| Memory protection | **PMP, 8 regions**, gating data accesses; instruction fetch is not checked yet |
 | Registers | 32 × 32-bit, `x0` hardwired zero, odd parity per word |
 | Endianness | little |
-| Misaligned access | **traps** — no hardware fixup (§4.2) |
-| Compressed (C) | **not implemented** — a 16-bit encoding is an illegal instruction |
+| Misaligned data access | **traps** — no hardware fixup (§4.2) |
+| Compressed (C) | **implemented** — Zca and Zcb; IALIGN is 16 |
+| Bit manipulation | **Zba, Zbb, Zbs** |
+| Zcmp (`cm.push`/`cm.pop`) | not implemented — needs a core sequencer |
 | Atomics (A), float (F/D) | not implemented |
 
+`misa` reports I, M, B and C, and reports them because they are
+implemented — see §6 of
+[verification_findings_20.md](verification_findings_20.md) for what
+happened the one time it did not.
+
 Because there is no U mode, there is no privilege boundary inside the
-subsystem: all code runs with full access to every register. Isolation,
-if you need it, is a software-architecture problem, not something the
-hardware will enforce.
+subsystem: all code runs in machine mode. PMP bounds an *erroneous*
+access, not a hostile one — in machine mode an entry is ignored unless
+its lock bit is set, so software that has not locked a region can simply
+rewrite it. Isolation against malicious code is a software-architecture
+problem, not something this hardware will enforce.
 
 ### 1.1 Toolchain
 
 ```sh
-riscv32-unknown-elf-gcc -march=rv32im_zicsr_zifencei -mabi=ilp32 \
-    -mno-relax -nostdlib -nostartfiles -T link.ld -o app.elf app.c start.S
+riscv32-unknown-elf-gcc -march=rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb \
+    -mabi=ilp32 -nostdlib -nostartfiles -T link.ld -o app.elf app.c start.S
 ```
 
-`-mno-relax` is not cosmetic. Linker relaxation combined with the
-`.option rvc` blocks in some third-party sources leaves 16-bit `c.nop`
-padding in the executed stream, and this core traps on any 16-bit
-encoding (finding V36). If you see an illegal-instruction trap at an
-address that disassembles as `.insn 2`, this is why.
+`-mno-relax` was required in variant 1 because that core trapped on any
+16-bit encoding (finding V36). This variant implements C, so relaxation
+is safe and the flag is no longer needed.
+
+Two things the assembler will now do that it did not before, both of
+which bit this repository's own tests (§9 of
+[verification_findings_20.md](verification_findings_20.md)):
+
+* **Labels are no longer word aligned.** `mtvec`'s BASE field is bits
+  [31:2], so writing a handler address of `0x25e` stores `0x25c` and
+  vectors two bytes early, into the middle of an instruction. Put
+  `.align 2` before every `mtvec` target.
+* **Patching by the word stops being safe.** Overwriting one 32-bit word
+  no longer means "replace exactly one instruction" — two compressed
+  instructions fit there. Pin any self-modifying target with
+  `.option norvc`.
 
 Memory image: `scripts/mkimage.py` turns a binary into the 39-bit
 ECC-encoded words the TCMs expect. Loading a raw binary directly into
@@ -126,7 +149,7 @@ Interrupts are taken at instruction boundaries only.
 
 | `mcause` | Cause | `mtval` |
 |---|---|---|
-| 0 | instruction address misaligned | target address |
+| 0 | instruction address misaligned — **unreachable on this core**, see below | target address |
 | 1 | instruction access fault (bus error, or uncorrectable ECC on fetch) | address |
 | 2 | illegal instruction | the instruction word |
 | 3 | breakpoint (`ebreak`) | — |
@@ -135,10 +158,22 @@ Interrupts are taken at instruction boundaries only.
 | 11 | environment call (`ecall`) | — |
 | 0x8000_0003 / 7 / B | software / timer / external interrupt | — |
 
-**Misaligned accesses trap.** There is no hardware fixup: a word load
-from an address with either low bit set, or a halfword load from an odd
-address, raises cause 4. If your code can generate them, either fix the
-alignment or emulate in the handler.
+**Misaligned data accesses trap.** There is no hardware fixup: a word
+load from an address with either low bit set, or a halfword load from an
+odd address, raises cause 4. If your code can generate them, either fix
+the alignment or emulate in the handler.
+
+**Cause 0 cannot occur.** With C implemented IALIGN is 16, JALR clears
+bit 0 in hardware, and JAL and branch immediates are always even — so no
+control transfer this core can execute is misaligned. Do not write a
+handler that relies on receiving it.
+
+**A PMP denial reports as a load or store access fault** (cause 5 / 7),
+raised before the request reaches the bus. It shares those causes with a
+real memory fault, and therefore also shares the safety controller's
+bus-error status bit: a software access violation sets the same sticky
+bit as a genuine one. Distinguishing them would need a separate event
+source and is not implemented.
 
 ### 4.3 A minimal handler
 
@@ -281,6 +316,39 @@ nowhere to go — the register the fault disabled is the one that would
 record it. That is exactly why configuration parity latches ungated
 (§5.1), and why an integrator is told to route the error pin outside
 this subsystem's failure domain.
+
+## 6a. Physical memory protection
+
+Eight regions, standard `pmpcfg0..3` / `pmpaddr0..15`. Two rules govern
+whether a region does anything at all, and both catch people out:
+
+* **In machine mode an entry is ignored unless its lock bit is set.**
+  Programming a region with no permissions does *not* deny an M-mode
+  access; only a **locked** entry does. Since this core has no U mode,
+  that means PMP here is entirely a locking mechanism.
+* **Locking a TOR region also locks `pmpaddr[i-1]`**, because that
+  address is the region's lower bound. Locking the config alone would
+  leave the boundary movable.
+
+A lock is permanent until reset. Only data accesses are checked; a
+denial raises cause 5 or 7 before the request reaches the bus (§4.2).
+Instruction fetch is not checked yet.
+
+`make pmp` is the directed test and exercises both directions —
+programmed-but-unlocked must still permit, locked-without-permission
+must deny — because a checker that denied everything would pass a
+one-sided test.
+
+## 6b. The JTAG port is not for firmware
+
+There is a JTAG TAP, but software cannot reach it and it cannot reach
+software's memory. It exposes six read-only words to an external
+debugger — IDCODE, a status word, the two fault vectors, and the PC and
+encoding of the last retired instruction — and cannot halt the core,
+single-step it, or write anything. See §10 of
+[register_map.md](register_map.md). A standard OpenOCD RISC-V
+configuration will not attach; this is not the RISC-V Debug
+specification's DM.
 
 ## 7. Idioms worth knowing
 

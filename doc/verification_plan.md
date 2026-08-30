@@ -7,14 +7,26 @@
 > is wider and whose core carries three replaced modules. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
-> **Status, 2026-08-25: every objective O1–O9 is met** — see the
+> **This plan's results are variant 1's.** The objectives O1–O9 below are
+> the right objectives for this variant too, and
+> [variant_status.md](variant_status.md) tracks them against it: O1 and
+> O2 are met **in this repository** (114 of 114 architectural tests
+> including 29 B tests, and 1 015 480 871 co-simulated instructions
+> against one frozen revision). The rest — coverage, fault injection,
+> the FMEDA, and a physical implementation of the current RTL — are not.
+> Read every "**met**" below as *met by variant 1*.
+
+> **Variant 1 status, 2026-08-25: every objective O1–O9 is met** — see the
 > objective table below for each criterion's result, the README for
 > the one-line summary, and `verification_findings.md` (V0–V52) for
 > the evidence. The FMEDA runs on assumed failure rates; replacing
 > them with foundry data is the safety-case owner's first task.
 >
-> Scope: the design as it stands today — RV32IM_Zicsr_Zifencei, single or
-> dual core, with the subsystem of `cdriscv_32s_20_subsys.sv`. Possible
+> Scope: variant 1 as it stood — RV32IM_Zicsr_Zifencei, single or
+> dual core. This variant's ISA is
+> `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb` and it carries a PMP checker
+> and a JTAG port, so each objective has to be re-established rather
+> than inherited. Possible
 > future ISA extensions are explicitly out of scope here and add their
 > own verification work. Physical implementation is likewise outside
 > these objectives; the RTL2GDS result is recorded in V45 and
