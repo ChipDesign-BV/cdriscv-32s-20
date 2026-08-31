@@ -94,6 +94,13 @@ module cdriscv_32s_20_core
   logic        redirect;
   logic [31:0] redirect_pc;
 
+  // Fetch-side PMP verdict on the word address the prefetcher is about
+  // to request (u_pmp_fetch, beside u_pmp_data below).  A denied word
+  // never reaches the bus: the fetch stage injects a faulted entry
+  // instead, which rides the ordinary fetch-error path and traps as
+  // EXC_INSTR_FAULT only if the instruction is actually executed.
+  logic        pmp_allow_fetch;
+
   cdriscv_32s_20_if_stage u_if (
       .clk_i          (clk_i),
       .rst_ni         (rst_ni),
@@ -111,7 +118,8 @@ module cdriscv_32s_20_core
       .instr_rvalid_i (instr_rvalid_i),
       .instr_addr_o   (instr_addr_o),
       .instr_rdata_i  (instr_rdata_i),
-      .instr_err_i    (instr_err_i)
+      .instr_err_i    (instr_err_i),
+      .fetch_allow_i  (pmp_allow_fetch)
   );
 
   cdriscv_32s_20_if_align u_if_align (
@@ -609,16 +617,24 @@ module cdriscv_32s_20_core
   );
 
   // ------------------------------------------------------------------
-  // PMP: the checker gates data accesses
+  // PMP: one checker instance per access port
   // ------------------------------------------------------------------
   // The pmpcfg/pmpaddr CSRs are implemented and verified (see
   // verif/block/tb_csr_equiv.sv, including the TOR locking rule), and
-  // cdriscv_32s_20_pmp is verified standalone at 52 419 checks, and
-  // allow_o now gates loads and stores: a denied access raises
-  // EXC_LOAD_FAULT / EXC_STORE_FAULT before the request reaches the bus.
+  // cdriscv_32s_20_pmp is verified standalone at 52 419 checks.  Two
+  // instances share the same CSR arrays:
   //
-  // Instruction fetch is NOT yet checked.  That needs the address on the
-  // fetch side and is a separate change.
+  //  * u_pmp_data gates loads and stores: a denied access raises
+  //    EXC_LOAD_FAULT / EXC_STORE_FAULT before the request reaches the
+  //    bus (see the exception block above).
+  //  * u_pmp_fetch gates instruction fetch: it judges the word address
+  //    the prefetcher offers on instr_addr_o, one check per fetched
+  //    word (an instruction straddling a word boundary is covered by
+  //    the checks on both words).  A denied word is never requested;
+  //    the fetch stage injects a faulted entry that traps as
+  //    EXC_INSTR_FAULT (mtval = mepc = the instruction's PC, the same
+  //    convention as a fetch bus error) only if it is executed --
+  //    a denied prefetch beyond a taken branch is flushed silently.
   //
   // Every region resets to OFF and this core is machine mode only, so
   // allow_o is 1 out of reset and behaviour is identical to the base
@@ -638,6 +654,17 @@ module cdriscv_32s_20_core
       .req_type_i     (lsu_we ? PMP_ACC_WRITE : PMP_ACC_READ),
       .req_machine_i  (1'b1),
       .allow_o        (pmp_allow_data)
+  );
+
+  cdriscv_32s_20_pmp #(
+      .NRegions (PMP_REGIONS)
+  ) u_pmp_fetch (
+      .cfg_i          (pmp_cfg_struct),
+      .addr_i         (pmp_addr),
+      .req_addr_i     (instr_addr_o),
+      .req_type_i     (PMP_ACC_EXEC),
+      .req_machine_i  (1'b1),
+      .allow_o        (pmp_allow_fetch)
   );
 
   // ------------------------------------------------------------------

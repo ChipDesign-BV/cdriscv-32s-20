@@ -14,9 +14,15 @@ bmc: depth 20
 prove: mode prove
 prove: depth 20
 
-# yices (SMT) for this one: the properties are about control, and it
-# converges at depth 20 in about ten seconds.  abc (SAT) was tried for
-# greater depth and does not help here.
+# yices (SMT) for this one: the properties are about control.  abc (SAT)
+# was tried for greater depth and does not help here.
+#
+# Cost: about ten seconds at depth 20 WITHOUT the PMP deny-word model.
+# With it (2026-08-31) the deep steps dominate and the full run takes
+# about 2 h 50 m -- the anyconst denied word multiplies the state the
+# solver must consider even though steps 0..16 stay quick.  Run it when
+# the fetch stage changes, not as a per-commit gate; the simulation
+# regression is the fast check.
 [engines]
 smtbmc yices
 

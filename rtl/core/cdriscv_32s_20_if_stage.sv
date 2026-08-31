@@ -31,9 +31,25 @@
 // transaction in the same cycle as a response for the previous one is
 // allowed and is what makes back-to-back fetching work.
 //
-// STATUS: inherited unchanged from cdriscv-32s-10, where it met that
-// repository's O1-O7 gate.  That gate does NOT carry over -- see
-// README.md.  NOT qualified for safety-critical use.
+// PMP on fetch (fetch_allow_i).  The core's fetch-side PMP checker
+// judges the word address currently offered on instr_addr_o.  A denied
+// word is handled the way the data side handles a denied access --
+// nothing is issued and then retracted: the bus request is suppressed
+// and a faulted entry (err=1, the PC it would have had) is injected
+// straight into the buffer, as if the bus had answered instantly with
+// an error.  From there the denial rides the existing fetch-error path:
+// it reaches the execute stage through if_align like any bus error, so
+// it traps as an instruction access fault only if and when the
+// instruction is actually executed, and a denied *prefetch* beyond a
+// taken branch is discarded by the ordinary redirect flush.  One check
+// per fetched word: an instruction straddling a word boundary is
+// covered by the checks on both words, because if_align ORs the two
+// error bits.
+//
+// STATUS: inherited from cdriscv-32s-10, where it met that repository's
+// O1-O7 gate; the PMP fault injection above is a cdriscv-32s-20 change
+// on top.  That gate does NOT carry over -- see README.md.  NOT
+// qualified for safety-critical use.
 
 `default_nettype none
 
@@ -61,7 +77,11 @@ module cdriscv_32s_20_if_stage (
     input  logic        instr_rvalid_i,
     output logic [31:0] instr_addr_o,
     input  logic [31:0] instr_rdata_i,
-    input  logic        instr_err_i
+    input  logic        instr_err_i,
+
+    // PMP verdict on the word address on instr_addr_o (combinational,
+    // from the core's fetch-side checker).  See the header note.
+    input  logic        fetch_allow_i
 );
 
   // ------------------------------------------------------------------
@@ -118,12 +138,29 @@ module cdriscv_32s_20_if_stage (
 
   // A request needs a free slot, and either no transaction in flight or
   // one that is completing right now.
-  assign instr_req_o  = fetch_en_i && (!outstanding_q || resp_now)
+  logic want_fetch;
+  assign want_fetch   = fetch_en_i && (!outstanding_q || resp_now)
                         && (occupancy_next <= 2'd1);
+  // A PMP-denied word never reaches the bus; it is injected below as a
+  // faulted response instead.  The gate is deliberately on this output
+  // path (instr_req_o and the write-side enables) and nowhere near the
+  // rd_ptr_*_q read muxes, which carry the design's critical path (V50).
+  assign instr_req_o  = want_fetch && fetch_allow_i;
   assign instr_addr_o = {fetch_pc_q[31:2], 2'b00};
 
   logic req_accepted;
   assign req_accepted = instr_req_o && instr_gnt_i;
+
+  // Denied fetch: complete it locally, this cycle, as a faulted entry.
+  // It can coincide with a real response landing (fill): the response
+  // takes buf[wr_ptr_q], the injected fault the other slot, and
+  // occupancy_next <= 1 above guarantees both fit.  It cannot coincide
+  // with req_accepted -- instr_req_o and fault_inject are gated by
+  // fetch_allow_i in opposite polarity.
+  logic fault_inject;
+  logic fault_wptr;
+  assign fault_inject = want_fetch && !fetch_allow_i;
+  assign fault_wptr   = fill ? ~wr_ptr_q : wr_ptr_q;
 
   // ------------------------------------------------------------------
   // State
@@ -188,13 +225,28 @@ module cdriscv_32s_20_if_stage (
         outstanding_q <= 1'b1;
       end
 
+      // PMP denial: the fetch completes locally as a faulted entry.
+      // When it coincides with a fill, this write targets the other
+      // slot and this wr_ptr_q assignment (last one wins) lands the
+      // pointer where two toggles would have.  Exclusive with
+      // req_accepted, so the fetch_pc_q advance cannot double.
+      if (fault_inject) begin
+        buf_rdata_q[fault_wptr] <= 32'h0;
+        buf_pc_q[fault_wptr]    <= fetch_pc_q;
+        buf_err_q[fault_wptr]   <= 1'b1;
+        wr_ptr_q                <= ~fault_wptr;
+        fetch_pc_q              <= fetch_pc_q + 32'd4;
+      end
+
       if (consume) begin
         rd_ptr_q       <= ~rd_ptr_q;
         rd_ptr_rdata_q <= ~rd_ptr_rdata_q;
         rd_ptr_pc_q    <= ~rd_ptr_pc_q;
       end
 
-      count_q <= count_q + (fill ? 2'd1 : 2'd0) - (consume ? 2'd1 : 2'd0);
+      count_q <= count_q + (fill ? 2'd1 : 2'd0)
+                         + (fault_inject ? 2'd1 : 2'd0)
+                         - (consume ? 2'd1 : 2'd0);
     end
   end
 

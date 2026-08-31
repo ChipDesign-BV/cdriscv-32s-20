@@ -79,7 +79,7 @@ statically known worst case latency.
 | Multiply | `cdriscv_32s_20_mult.sv` | single cycle, 33×33 |
 | Divide | `cdriscv_32s_20_multdiv.sv` | 32 iterations, data independent latency |
 | Load/store | `cdriscv_32s_20_lsu.sv` | single beat, misaligned access traps |
-| PMP | `cdriscv_32s_20_pmp.sv` | 8 regions, data accesses only |
+| PMP | `cdriscv_32s_20_pmp.sv` | 8 regions, data accesses and instruction fetch (one checker instance per port) |
 | Decompress | `cdriscv_32s_20_decompress.sv` | Zca/Zcb, 16 → 32 bit |
 | Realign | `cdriscv_32s_20_if_align.sv` | 16-bit granularity, straddle handling |
 | CSR | `cdriscv_32s_20_csr.sv` | M-mode subset, PMP registers, two safety CSRs |

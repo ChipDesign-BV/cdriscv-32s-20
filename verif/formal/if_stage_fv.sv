@@ -33,7 +33,8 @@ module if_stage_fv (
 );
 
   // ------------------------------------------------------------------
-  // Abstractions.  Both narrow what is proven, so both are stated.
+  // Abstractions.  All three narrow what is proven, so all are stated
+  // (the third, the PMP verdict, is below beside its signal).
   //
   // 1. instr_rdata_i is tied off.  No property here reads the
   //    instruction word -- they are all about which address is fetched
@@ -51,10 +52,38 @@ module if_stage_fv (
   logic [31:0] instr_rdata_i;
   assign instr_rdata_i = 32'h0000_0013;   // nop, arbitrary
 
+
   logic        instr_valid, instr_err_out;
   logic [31:0] instr_rdata_out, instr_pc;
   logic        instr_req;
   logic [31:0] instr_addr;
+
+  // ------------------------------------------------------------------
+  // 3. The PMP verdict is one symbolic denied word, constant through
+  //    the trace.  A per-cycle-free fetch_allow_i was tried first and
+  //    is sound but intractable: the routine ten-second BMC became
+  //    minutes per step from step 17 on (measured before it was
+  //    stopped).  Between configuration writes the real verdict is a
+  //    pure function of the fetch address, so a solver-chosen NA4-like
+  //    denied word models it faithfully: the denied word is re-met
+  //    across redirects, which exercises injection coinciding with a
+  //    fill, with a redirect, and with back-pressure.  What this
+  //    abstraction misses is a pmpcfg/pmpaddr REWRITE while fetches
+  //    are in flight; `make pmp` covers that in simulation (its
+  //    check 22 exists precisely because of it).
+  // ------------------------------------------------------------------
+  (* anyconst *) logic        deny_en;
+  (* anyconst *) logic [29:0] deny_word;
+  logic fetch_allow_i;
+  assign fetch_allow_i = !(deny_en && (instr_addr[31:2] == deny_word));
+
+  // ...confined to the same low 1 KiB as the redirect targets, for the
+  // same reason (see abstraction note 2): control bugs have their
+  // counterexample in that range, address-specific ones are left to
+  // simulation.  Stated as an assumption on the constant.
+  always @(posedge clk_i) begin
+    a_deny_range: assume (deny_word[29:8] == 22'b0);
+  end
 
   cdriscv_32s_20_if_stage u_dut (
       .clk_i          (clk_i),
@@ -73,7 +102,8 @@ module if_stage_fv (
       .instr_rvalid_i (instr_rvalid_i),
       .instr_addr_o   (instr_addr),
       .instr_rdata_i  (instr_rdata_i),
-      .instr_err_i    (instr_err_i)
+      .instr_err_i    (instr_err_i),
+      .fetch_allow_i  (fetch_allow_i)
   );
 
   // ------------------------------------------------------------------
@@ -184,6 +214,11 @@ module if_stage_fv (
 
       // Fetching stops when it is disabled.
       p_fetch_en: assert (fetch_en_i || !instr_req);
+
+      // A PMP-denied word never reaches the bus.  (Its faulted stand-in
+      // enters the buffer instead and is covered by p_pc_stream like
+      // any other entry.)
+      p_deny_no_req: assert (fetch_allow_i || !instr_req);
 
       // p_no_outstanding_at_redirect used to live here: with a
       // one-deep buffer no fetch could be in flight at a redirect, and

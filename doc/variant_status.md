@@ -153,9 +153,10 @@ Largest first.
    (`make riscof`). Two caveats keep this short of variant 1's O1 claim:
    the suite is a vintage release, and 43 PMP tests are dropped by
    selection rather than by result — the vintage suite selects them on
-   any RV32 I+Zicsr core, and although this variant now has PMP *CSRs*,
-   its checker is not in the access path, so they would not be
-   meaningful yet. Zcb still has no architectural tests upstream at all
+   any RV32 I+Zicsr core. (When this was written the checker was not in
+   the access path; it now gates data accesses and instruction fetch,
+   see item 5 of §3, but the dropped tests have not been revisited and
+   the claim here is still only about the 114 that ran.) Zcb still has no architectural tests upstream at all
    and will need directed tests.
 3. **Zca/Zcb are in the fetch path.** `if_align` sits between the
    word-level prefetcher and decode; `misa` now reports C. The core
@@ -169,26 +170,54 @@ Largest first.
    `cm.push`/`cm.pop`/`cm.popret` expand to a *variable-length sequence*
    of loads and stores plus a stack adjustment, not to one 32-bit
    instruction. They need a sequencer in the core.
-5. **PMP gates data accesses; instruction fetch is not checked yet.**
+5. **PMP gates data accesses — and now instruction fetch.**
    A denied load or store raises `EXC_LOAD_FAULT` / `EXC_STORE_FAULT`
    *before* the request reaches the bus — the exception is raised in the
    same pre-issue block as a misaligned address, and `start_lsu` is gated
-   on `!take_exc`, so nothing is issued and then retracted. Checking the
-   fetch address needs the check on the fetch side and is a separate
-   change.
+   on `!take_exc`, so nothing is issued and then retracted.
 
-   `make pmp` is the directed test, mutation-validated 3/3. It checks
-   **both directions**, because a checker that denied everything would
-   pass a one-sided test: an entry that is programmed but **unlocked**
-   must not bind machine mode, and only a **locked** entry with no
-   permission may deny. That asymmetry is the part of the privileged
-   spec that catches people out.
+   Fetch is checked the same way now. (This entry used to say checking
+   the fetch address "is a separate change"; as with the CLINT and E2E
+   entries below, the prediction has been replaced by the result,
+   2026-08-31.) A second instance of the verified checker,
+   `u_pmp_fetch`, fed the same CSR arrays with `req_type = execute`,
+   judges the word address the prefetcher offers on `instr_addr_o` —
+   one check per fetched word, so an instruction straddling a word
+   boundary is covered by the checks on both words, whose error bits
+   `if_align` already ORs. A denied word never reaches the bus either:
+   the fetch stage suppresses the request and injects a faulted buffer
+   entry in its place, as if the bus had answered instantly with an
+   error. From there the denial rides the existing fetch-error path, so
+   it traps as `EXC_INSTR_FAULT` (cause 1, `mtval` = `mepc` = the
+   denied instruction's PC — the same convention as a fetch bus error)
+   only if and when the instruction is actually executed, and a denied
+   *prefetch* beyond a taken branch dies silently in the ordinary
+   redirect flush. The added logic sits on the request/write side of
+   the fetch buffer, deliberately away from the `rd_ptr_*_q` read
+   muxes that carry the timing-critical path (§3.8); the cost is the
+   8-region compare now in series with `instr_req_o`.
+
+   `make pmp` is the directed test, now 23 checks; mutation-validated
+   3/3 on the data side and **5/5 on the fetch side**
+   (`scripts/mutate_pmp_fetch.py`). It checks **both directions**,
+   because a checker that denied everything would pass a one-sided
+   test: an entry that is programmed but **unlocked** must not bind
+   machine mode — for data *and* for execution — and only a **locked**
+   entry may deny. The locked fetch region deliberately keeps R=1 so a
+   checker testing the wrong permission bit is caught, and a locked
+   no-permission region sits over a word the prefetcher runs into but
+   execution jumps over, proving the discard. That last check was born
+   inert: a surviving mutant showed the prefetcher had fetched the word
+   *before* the `csrw` locking its region retired, so no fetch was ever
+   denied — the check now carries a `fence.i` to force a refetch under
+   the new rules. A checker's kill list is also a test of the test.
 
    One consequence worth knowing: a PMP denial reports through the
    safety controller's **bus-error** event, because it raises the same
-   `EXC_*_FAULT` causes. A software access violation therefore sets the
-   same sticky status bit as a real memory fault. Distinguishing them
-   would need a separate event source.
+   `EXC_*_FAULT` causes — and a denied fetch (cause 1) is on that list
+   too. A software access violation therefore sets the same sticky
+   status bit as a real memory fault. Distinguishing them would need a
+   separate event source.
 6. **The CLINT is instantiated; so, now, is E2E.**
 
    The CLINT owns MTIP and MSIP now. It sits on the **main bus** at
@@ -376,7 +405,7 @@ Largest first.
    model predates JTAG, PMP and the C extension, so its 100 % is 100 %
    of an out-of-date model — worth less than the number suggests. The
    whole set re-runs on stable RTL once the implementation phase
-   (Zcmp, PMP-on-fetch; E2E closed 2026-08-31) closes.
+   (Zcmp; PMP-on-fetch and E2E both closed 2026-08-31) closes.
 
 ---
 

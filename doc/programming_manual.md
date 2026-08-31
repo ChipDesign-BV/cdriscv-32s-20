@@ -32,7 +32,7 @@ functional safety standard is claimed.
 |----------|-------|
 | ISA | `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb` |
 | Privilege | **machine mode only** — no U or S mode, no virtual memory |
-| Memory protection | **PMP, 8 regions**, gating data accesses; instruction fetch is not checked yet |
+| Memory protection | **PMP, 8 regions**, gating data accesses and instruction fetch (§6a) |
 | Registers | 32 × 32-bit, `x0` hardwired zero, odd parity per word |
 | Endianness | little |
 | Misaligned data access | **traps** — no hardware fixup (§4.2) |
@@ -157,7 +157,7 @@ Interrupts are taken at instruction boundaries only.
 | `mcause` | Cause | `mtval` |
 |---|---|---|
 | 0 | instruction address misaligned — **unreachable on this core**, see below | target address |
-| 1 | instruction access fault (bus error, or uncorrectable ECC on fetch) | address |
+| 1 | instruction access fault (bus error, uncorrectable ECC on fetch, or PMP-denied execute) | PC of the instruction |
 | 2 | illegal instruction | the instruction word |
 | 3 | breakpoint (`ebreak`) | — |
 | 4 / 6 | load / store address misaligned | the address |
@@ -367,14 +367,27 @@ whether a region does anything at all, and both catch people out:
   address is the region's lower bound. Locking the config alone would
   leave the boundary movable.
 
-A lock is permanent until reset. Only data accesses are checked; a
-denial raises cause 5 or 7 before the request reaches the bus (§4.2).
-Instruction fetch is not checked yet.
+A lock is permanent until reset. Data accesses **and instruction
+fetch** are both checked; a denial never reaches the bus. A denied load
+or store raises cause 5 or 7 (§4.2). Executing from a region a locked
+entry denies X on raises cause 1, with `mtval` and `mepc` both holding
+the PC of the denied instruction — but only if the instruction is
+actually *executed*: the prefetcher routinely runs a few words past a
+taken branch, and a denied prefetch that execution never reaches is
+discarded without a trap. The unlocked-means-permitted rule above
+applies to fetch exactly as to data: with no U mode, an unlocked X=0
+entry denies nothing.
 
-`make pmp` is the directed test and exercises both directions —
-programmed-but-unlocked must still permit, locked-without-permission
-must deny — because a checker that denied everything would pass a
-one-sided test.
+Two practical notes. The checker judges fetch per 32-bit word, so a
+compressed-code instruction straddling a word boundary faults if
+*either* word is denied. And after writing `pmpcfg`/`pmpaddr`, code
+already prefetched was checked under the old configuration — issue a
+`fence.i` if the new region must bind the very next instructions.
+
+`make pmp` is the directed test and exercises both directions on both
+ports — programmed-but-unlocked must still permit (and still execute),
+locked-without-permission must deny — because a checker that denied
+everything would pass a one-sided test.
 
 ## 6b. The JTAG port is not for firmware
 

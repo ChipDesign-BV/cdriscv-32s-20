@@ -105,9 +105,9 @@ validated.
   bypasses the lockstep comparator in functional mode.
 * **AoU-10** The subsystem has no privilege separation — machine mode
   only — so it offers no protection against *malicious* software. PMP is
-  implemented and gates data accesses, which bounds an erroneous access;
-  it does not bound a hostile one, because M-mode software can rewrite
-  any entry it has not locked. Instruction fetch is not yet checked.
+  implemented and gates data accesses and instruction fetch, which
+  bounds an erroneous access; it does not bound a hostile one, because
+  M-mode software can rewrite any entry it has not locked.
 * **AoU-11** The JTAG port is an **observation** interface. It exposes
   six read-only words — IDCODE, a status word, the two fault vectors and
   the last retired PC and encoding — and cannot halt the core,

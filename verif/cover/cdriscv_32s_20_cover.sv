@@ -101,7 +101,8 @@ module cdriscv_32s_20_if_cover (
     input logic       clk, rst_n,
     input logic [1:0] occupancy,
     input logic       outstanding_q, discard_q,
-    input logic       redirect_i, instr_req_o, instr_gnt_i
+    input logic       redirect_i, instr_req_o, instr_gnt_i,
+    input logic       fault_inject
 );
   always @(posedge clk) if (rst_n) begin
     // the fetch buffer at each depth: the deepened prefetch (V2-P1) is
@@ -115,6 +116,9 @@ module cdriscv_32s_20_if_cover (
     cp_discard_pending:   cover (discard_q);
     // memory refusing a fetch
     cp_fetch_stalled:     cover (instr_req_o && !instr_gnt_i);
+    // PMP refusing a fetch: the denied word never reaches the bus and
+    // a faulted entry is injected instead
+    cp_fetch_denied:      cover (fault_inject);
   end
 endmodule
 
@@ -122,7 +126,8 @@ bind cdriscv_32s_20_if_stage cdriscv_32s_20_if_cover u_cover (
     .clk (clk_i), .rst_n (rst_ni),
     .occupancy (occupancy), .outstanding_q (outstanding_q),
     .discard_q (discard_q), .redirect_i (redirect_i),
-    .instr_req_o (instr_req_o), .instr_gnt_i (instr_gnt_i)
+    .instr_req_o (instr_req_o), .instr_gnt_i (instr_gnt_i),
+    .fault_inject (fault_inject)
 );
 
 // ------------------------------------------------------------------ TCM

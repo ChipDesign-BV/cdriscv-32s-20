@@ -39,7 +39,11 @@ module tb_if_equiv;
     .instr_valid_o(n_valid), .instr_rdata_o(n_rdata), .instr_pc_o(n_pc),
     .instr_err_o(n_err), .instr_ready_i(instr_ready),
     .instr_req_o(n_req), .instr_gnt_i(gnt), .instr_rvalid_i(rvalid),
-    .instr_addr_o(n_addr), .instr_rdata_i(rdata_i), .instr_err_i(err_i));
+    .instr_addr_o(n_addr), .instr_rdata_i(rdata_i), .instr_err_i(err_i),
+    // PMP fetch gating is new in cdriscv-32s-20 and has no counterpart
+    // in the gold model; allow everything so the comparison stays about
+    // the replicated read pointer.
+    .fetch_allow_i(1'b1));
 
   int checks = 0, errors = 0;
 
