@@ -19,7 +19,7 @@ relies on anything here.
 | `alu` | Zba + Zbb + Zbs, 27 new operations | base ALU bench passes unchanged against it (453 840 vectors) |
 | `decoder` | Zba + Zbb + Zbs decode | equivalence-checked against variant 1's decoder |
 | `csr` | PMP registers; `mepc` halfword aligned; `misa` reports B **and C** | equivalence-checked against variant 1's CSR file |
-| `core` | wider operator, PMP checker instantiated | PMP resets to all-regions-off, so behaviour out of reset is identical to variant 1 |
+| `core` | wider operator, PMP checker instantiated; **ST_SEQ Zcmp sequencer** (2026-08-31) | PMP resets to all-regions-off, so behaviour out of reset is identical to variant 1; a cm.* retires once, as Spike does |
 
 New modules. The **in** column says whether the subsystem instantiates
 it — a module that is written and block-verified but not wired up is not
@@ -30,7 +30,8 @@ table:
 |---|---|---|
 | `mult` | single-cycle 33×33 multiplier, replacing `multdiv`'s multiply path | yes |
 | `pmp` | 8-region physical memory protection checker | yes, data accesses |
-| `decompress` | Zca/Zcb 16 → 32 bit expander | yes |
+| `decompress` | Zca/Zcb 16 → 32 bit expander; flags (not expands) Zcmp | yes |
+| `zcmp` | Zcmp micro-operation step table, walked by the core's `ST_SEQ` | yes |
 | `if_align` | 16-bit fetch granularity and straddle handling | yes |
 | `jtag_tap` | IEEE 1149.1 TAP, no riscv-dbg dependency | yes |
 | `dbg_bridge` | tck ↔ system handshake for the TAP's debug bus | yes |
@@ -58,13 +59,14 @@ anything in the RTL.
 | `clint` | `block-clint` | 11 918 | 7/7 | independent register model |
 | `jtag_tap` | `block-jtag` | 21 | 7/7 | IEEE 1149.1 mandatory sequences |
 | `dbg_bridge` + `dbg_win` | `block-dbg` | 35 | 9/10 | the same reads at three tck:clk ratios |
-| `decompress` | `block-decompress` | 65 536 | 7/7 | **binutils**, over every 16-bit encoding |
+| `decompress` | `block-decompress` | 65 536 | 7/7 | **binutils**, over every 16-bit encoding — now including the Zcmp flag both ways |
+| `zcmp` (+ core `ST_SEQ`) | `block-zcmp` | 312 seq / 1 744 steps | 9/9 | **Spike**, replaying the dumped micro-ops against a commit log built from binutils-assembled cm.* mnemonics (`scripts/check_zcmp.py`); the 9 mutants span the table AND the core sequencer (`scripts/mutate_zcmp.py`, killed by block-zcmp or the `zcmp` directed test) |
 | `if_align` | `block-if-align` | 101 317 | 9/9 | byte-stream walker written from the ISA rule alone |
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 | `e2e_link` | `block-e2e-link` | 11 286 | 8/8 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic |
 
-`make block-20` runs all twelve: **2 051 360 checks**.
+`make block-20` runs all thirteen: **2 051 672 checks**.
 
 The one surviving mutant in `block-dbg` is named rather than rounded
 away: moving the bridge's acknowledge a cycle earlier, so it is sent in
@@ -166,10 +168,73 @@ Largest first.
    encoding rather than the expansion, and the retire trace reports the
    instruction as fetched. Co-simulation against Spike matches on
    programs that are ~30 % compressed.
-4. **Zcmp is not written and cannot go in the decompressor.**
-   `cm.push`/`cm.pop`/`cm.popret` expand to a *variable-length sequence*
-   of loads and stores plus a stack adjustment, not to one 32-bit
-   instruction. They need a sequencer in the core.
+4. **Zcmp is implemented — as the sequencer the previous entry said it
+   needed.** (This entry used to say "Zcmp is not written and cannot go
+   in the decompressor"; as with the CLINT, E2E and PMP-on-fetch
+   entries, the prediction has been replaced by the result, 2026-08-31.)
+   `cm.push`/`cm.pop`/`cm.popret`/`cm.popretz`/`cm.mva01s`/`cm.mvsa01`
+   expand to a *variable-length sequence* of loads and stores plus a
+   stack adjustment, so they could not live in the combinational
+   decompressor.  The decompressor now *flags* the 312 legal encodings
+   (`zcmp_o`, checked both ways against binutils in `block-decompress`),
+   a stateless step table (`cdriscv_32s_20_zcmp`) says what each
+   micro-operation does, and a fifth core FSM state `ST_SEQ` walks it
+   over the existing one-at-a-time datapath — one LSU access per memory
+   beat, the ALU for the moves and the final sp add.  The ISA string
+   grew `_zcmp` everywhere (`ARCH`, `COSIM_ARCH`, cosim.py, the random
+   regression); `misa` is untouched because Zcmp has no `misa` bit.
+
+   The semantics that needed deciding, and where each is proven:
+
+   * **One retirement per cm.*** (retire_valid once, pc += 2, the raw
+     16-bit encoding), exactly as Spike retires it.  The cosim bench
+     accumulates the sequence's register/memory writes and prints them
+     on the one TRACE line the way Spike prints its commit line
+     (registers sorted by index, memory beats in execution order), and
+     cosim.py now tokenises the whole write list per retirement instead
+     of matching one register + one memory field.  Proven by `make
+     cosim` / `cosim-stall` (both simulators) and the minstret
+     arithmetic in the directed test.
+   * **Not interruptible mid-sequence** — interrupts are taken at
+     instruction boundaries only, the simplest correct choice for a
+     lockstep safety core.  The cost is bounded and recorded as a WCET
+     fact (worst case `cm.push {ra, s0-s11}`: 13 memory beats + the sp
+     write, ~28 cycles on zero-wait-state TCMs, plus bus wait states) in
+     programming_manual.md §1.2.  Proven by sweeping a CLINT deadline
+     across a `cm.pop` in 1-cycle steps: whenever the handler sees
+     `mepc` = the cm PC, the first-loaded register must still hold its
+     poison (`make zcmp` check 14) — the partially-executed state a
+     mid-sequence interrupt would present.
+   * **Mid-sequence exceptions restart cleanly**: each beat passes the
+     same pre-issue checks as an ordinary access (misalign, then PMP —
+     a denied beat never reaches the bus), the trap reports mepc = the
+     cm PC and mtval = the beat address, and **sp is written last** so
+     the faulted instruction's sources are intact.  The Zc spec permits
+     the completed stores below the final sp (that region is volatile
+     across the instruction).  Proven by a cm.push into a locked
+     PMP-denied word (mcause 7, mtval, mepc, sp unchanged, the guarded
+     word untouched) and a misaligned-sp push (mcause 6) in `make
+     zcmp`; the sp-written-first mutant is killed by exactly the
+     sp-unchanged check (exit code 18).
+   * **Lockstep untouched**: the sequencer is a function of
+     core-internal state and core inputs only, entirely inside
+     `u_core`; the wrapper and comparator are unchanged.
+
+   Verification: `block-zcmp` (312 sequences / 1 744 steps against a
+   Spike commit log generated from binutils-assembled mnemonics — the
+   repo's independent-reference pattern), `block-decompress` extended
+   with the flag column, the 22-check directed test (`make zcmp`,
+   including nested popret frames and both mv forms), cosim on both
+   simulators with cm.* sections in cosim_isa.S, and 9/9 mutants killed
+   (`scripts/mutate_zcmp.py`: wrong rlist count, sp written first,
+   retire per beat, interrupt mid-sequence, popretz without the zero,
+   swapped mv pair, wrong rounding, wrong pop base, denied beat
+   reaching the bus).  Known gap: `gen_random_prog.py` does not emit
+   cm.* (or any compressed) instructions itself — random Zcmp coverage
+   is a generator extension left open.  The decoder equivalence bench
+   needed no new expectation entries: cm.* never reach the 32-bit
+   decoder (the decompressor hands it a nop and the core diverts to
+   ST_SEQ), so the decoder is byte-identical to before Zcmp.
 5. **PMP gates data accesses — and now instruction fetch.**
    A denied load or store raises `EXC_LOAD_FAULT` / `EXC_STORE_FAULT`
    *before* the request reaches the bus — the exception is raised in the
@@ -404,8 +469,9 @@ Largest first.
    leave PMP at its all-regions-off reset. And the functional-coverage
    model predates JTAG, PMP and the C extension, so its 100 % is 100 %
    of an out-of-date model — worth less than the number suggests. The
-   whole set re-runs on stable RTL once the implementation phase
-   (Zcmp; PMP-on-fetch and E2E both closed 2026-08-31) closes.
+   whole set re-runs on stable RTL now that the implementation phase
+   has closed (Zcmp, the last item, PMP-on-fetch and E2E all closed
+   2026-08-31).
 
 ---
 

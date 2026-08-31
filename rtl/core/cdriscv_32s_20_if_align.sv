@@ -72,6 +72,7 @@ module cdriscv_32s_20_if_align (
     output logic [31:0] instr_pc_o,         // address of the FIRST halfword
     output logic        instr_err_o,
     output logic        instr_illegal_o,    // illegal compressed encoding
+    output logic        instr_zcmp_o,       // legal Zcmp sequence instruction
     output logic        instr_compressed_o,
     // The instruction exactly as it was fetched, before expansion.  mtval
     // for an illegal instruction must hold the encoding that faulted, and
@@ -114,11 +115,13 @@ module cdriscv_32s_20_if_align (
   // ------------------------------------------------------------------
   logic [31:0] dec_instr;
   logic        dec_illegal;
+  logic        dec_zcmp;
 
   cdriscv_32s_20_decompress u_decompress (
       .instr_i   (hw),
       .instr_o   (dec_instr),
-      .illegal_o (dec_illegal)
+      .illegal_o (dec_illegal),
+      .zcmp_o    (dec_zcmp)
   );
 
   // ------------------------------------------------------------------
@@ -143,6 +146,7 @@ module cdriscv_32s_20_if_align (
     instr_pc_o         = hw_pc;
     instr_err_o        = word_err_i;
     instr_illegal_o    = 1'b0;
+    instr_zcmp_o       = 1'b0;
     instr_compressed_o = 1'b0;
 
     if (emit_straddle) begin
@@ -157,6 +161,7 @@ module cdriscv_32s_20_if_align (
       instr_rdata_o      = dec_instr;
       instr_raw_o        = {16'b0, hw};
       instr_illegal_o    = dec_illegal;
+      instr_zcmp_o       = dec_zcmp;
       instr_compressed_o = 1'b1;
     end
   end

@@ -19,7 +19,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 BUILD = os.path.join(ROOT, "build", "random")
 CROSS = os.environ.get("CROSS", "riscv64-unknown-elf-")
-ARCH = "rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb"
+# _zcmp is enabled so the toolchain accepts cm.* encodings, but note
+# that gen_random_prog.py does not (yet) emit any compressed or Zcmp
+# instructions itself: the assembler auto-compresses to Zca/Zcb where
+# it can, and cm.* coverage comes from cosim_isa.S and the zcmp
+# directed test, not from this generator.  That is a known gap.
+ARCH = "rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp"
 
 
 def sh(cmd, **kw):

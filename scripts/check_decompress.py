@@ -4,6 +4,15 @@
 #
 # Check the Zca/Zcb decompressor against binutils, as a proper RV32.
 #
+# Zcmp: the decompressor does not EXPAND cm.* (they are sequences, run
+# by the core's ST_SEQ) but it must RECOGNISE exactly the encodings
+# binutils decodes as cm.*: the dump's fourth column is that flag, and
+# it is checked both ways -- an encoding binutils calls cm.* must carry
+# the flag (and not be illegal), and the flag on anything else is a
+# defect that would make the core sequence a non-Zcmp instruction.  The
+# sequence semantics themselves are checked against Spike by
+# scripts/check_zcmp.py, not here.
+#
 # The naive approach -- objdump on a raw binary -- CANNOT be restricted to
 # RV32: it decodes c.ldsp, c.addiw and friends, and it cannot see c.jal at
 # all because RV64 reads that opcode as c.addiw.  Assembling `.insn`
@@ -21,7 +30,7 @@ import subprocess, sys, re, os, collections
 
 AS      = "riscv64-unknown-elf-as"
 OBJDUMP = "riscv64-unknown-elf-objdump"
-ARCH    = "rv32im_zba_zbb_zbs_zca_zcb"
+ARCH    = "rv32im_zba_zbb_zbs_zca_zcb_zcmp"
 TMP     = os.environ.get("TMPDIR", "/tmp")
 
 def disasm(items, width):
@@ -86,8 +95,8 @@ IDENT = {
 def main():
     rows = []
     for line in open("build/decompress_dump.txt"):
-        a, b, c = line.split()
-        rows.append((int(a, 16), int(b, 16), int(c)))
+        a, b, c, z = line.split()
+        rows.append((int(a, 16), int(b, 16), int(c), int(z)))
     # bits[1:0] == 11 is a 32-bit instruction by definition -- not
     # compressed at all, and the assembler refuses `.insn 2` for it.  Those
     # must simply be rejected, and that is checked directly.
@@ -96,9 +105,15 @@ def main():
     d32 = disasm([(i, rows[i][1]) for i, _ in comp], 32)
 
     st = collections.Counter(); bad = collections.defaultdict(list)
-    for i, (c16, x32, ill) in enumerate(rows):
+    for i, (c16, x32, ill, zf) in enumerate(rows):
+        if ill and zf:
+            # structurally impossible by intent: a flagged Zcmp encoding
+            # is a legal instruction
+            st["ZCMP_MISFLAG"] += 1
+            bad["ZCMP_MISFLAG"].append((c16, x32, "illegal+zcmp", "both flags set"))
+            continue
         if (c16 & 3) == 3:
-            if ill: st["ok_reject_uncompressed"] += 1
+            if ill and not zf: st["ok_reject_uncompressed"] += 1
             else:
                 st["ACCEPTED_INVALID"] += 1
                 bad["ACCEPTED_INVALID"].append((c16, x32, "not compressed", "we accepted it"))
@@ -107,6 +122,33 @@ def main():
         if ref is None:
             st["no_ref"] += 1; continue
         rm, ro, raddr = ref
+        if rm.startswith("cm."):
+            # binutils is lax about the reserved rlist values 0..3 of
+            # the push/pop family and disassembles them as cm.* with a
+            # nonsense adjustment; the spec reserves them and the DUT
+            # must trap.  Same class of commented exception as the
+            # shamt[5] shifts below.
+            push_family = ((c16 >> 13) == 0b101 and ((c16 >> 11) & 3) == 3
+                           and ((c16 >> 8) & 1) == 0)
+            if push_family and ((c16 >> 4) & 0xf) < 4:
+                if ill: st["ok_reject_reserved"] += 1
+                else:
+                    st["ACCEPTED_INVALID"] += 1
+                    bad["ACCEPTED_INVALID"].append((c16, x32, rm + " rlist<4", "we accepted it"))
+            elif zf:
+                st["ok_zcmp_flagged"] += 1
+            else:
+                st["REJECTED_VALID"] += 1
+                bad["REJECTED_VALID"].append((c16, x32, "%s %s" % (rm, ro),
+                                              "no zcmp flag"))
+            continue
+        if zf:
+            # the flag on a non-Zcmp encoding would make the core run a
+            # sequence in place of a real instruction
+            st["ZCMP_MISFLAG"] += 1
+            bad["ZCMP_MISFLAG"].append((c16, x32, "%s %s" % (rm, ro),
+                                        "zcmp flag on a non-cm encoding"))
+            continue
         if rm == ".insn":                      # not valid RV32 Zca/Zcb
             if ill: st["ok_reject_invalid"] += 1
             else:
@@ -165,13 +207,14 @@ def main():
         else:
             st["ok"] += 1
 
-    print("=== Zca/Zcb decompressor vs binutils (%s), 65 536 encodings ===" % ARCH)
+    print("=== Zca/Zcb/Zcmp decompressor vs binutils (%s), 65 536 encodings ===" % ARCH)
     for k in sorted(st): print("  %-30s %6d" % (k, st[k]))
     for cat in sorted(bad):
         print("\n  %s  (%d)" % (cat, len(bad[cat])))
         for c16, x32, ref, why in bad[cat][:3]:
             print("    %04x -> %08x | ref %-26s | %s" % (c16, x32, ref, why))
-    n = st["MISMATCH"] + st["REJECTED_VALID"] + st["ACCEPTED_INVALID"]
+    n = (st["MISMATCH"] + st["REJECTED_VALID"] + st["ACCEPTED_INVALID"]
+         + st["ZCMP_MISFLAG"])
     print("\n  expansions matched %d, correctly rejected %d, discrepancies %d"
           % (st["ok"], st["ok_reject_invalid"], n))
     print("  " + ("PASS" if n == 0 else "FAIL"))

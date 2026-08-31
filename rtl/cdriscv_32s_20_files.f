@@ -37,6 +37,7 @@ rtl/cdriscv_32s_20_subsys.sv
 // ---------------------------------------------------------------------
 rtl/core/cdriscv_32s_20_mult.sv
 rtl/core/cdriscv_32s_20_decompress.sv
+rtl/core/cdriscv_32s_20_zcmp.sv
 rtl/core/cdriscv_32s_20_if_align.sv
 rtl/periph/cdriscv_32s_20_clint.sv
 rtl/periph/cdriscv_32s_20_clint_obi.sv

@@ -90,11 +90,19 @@ and none is needed for a small control loop. What *is* present is a
 narrower thing — an IEEE 1149.1 TAP reaching six read-only words (§5a) —
 chosen precisely because it adds no state the core has to reason about.
 
-Zcmp (`cm.push`/`cm.pop`/`cm.popret`) is absent for a structural reason
-rather than a preference: those encodings expand to a *variable-length
-sequence* of loads and stores, not to one 32-bit instruction, so they
-cannot live in a combinational decompressor. They need a sequencer in
-the core.
+Zcmp (`cm.push`/`cm.pop`/`cm.popret`/`cm.popretz`/`cm.mva01s`/
+`cm.mvsa01`) could not live in the combinational decompressor — those
+encodings expand to a *variable-length sequence* of loads and stores
+plus a stack adjustment, not to one 32-bit instruction — so it is the
+one extension with its own sequencer in the core: the decompressor
+flags the encoding (`cdriscv_32s_20_decompress.zcmp_o`), a stateless
+step table (`cdriscv_32s_20_zcmp`) says what each micro-operation does,
+and the core FSM's `ST_SEQ` state walks it one LSU access or one
+register write at a time over the existing one-at-a-time datapath.
+Each cm.* retires once, is not interruptible mid-sequence (bounded
+worst case: 13 memory beats plus the sp write), and writes sp as its
+last step so a faulting beat leaves the instruction restartable from
+`mepc`.  See programming_manual.md §1.2.
 
 ## 3. Bus
 

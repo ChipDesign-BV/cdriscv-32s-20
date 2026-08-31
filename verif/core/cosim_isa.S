@@ -183,6 +183,48 @@ _start:
     csrrsi s4, mscratch, 8
     csrrci s5, mscratch, 8
 
+    /* ---- Zcmp: the sequence instructions --------------------------
+       Each cm.* retires as ONE instruction with several register and
+       memory writes on its commit line; the comparison covers every
+       one of them (see cosim.py's tokeniser).  Register values are
+       made distinctive first so a swapped register or offset cannot
+       cancel out. */
+    li    ra, 0x1111aa01
+    li    s0, 0x2222bb02
+    li    s1, 0x3333cc03
+    li    s2, 0x4444dd04
+    li    s3, 0x5555ee05
+    li    s4, 0x6666ff06
+    li    s5, 0x77770a07
+    li    s6, 0x88881b08
+    li    s7, 0x99992c09
+    li    s8, 0xaaaa3d0a
+    li    s9, 0xbbbb4e0b
+    li    s10, 0xcccc5f0c
+    li    s11, 0xdddd600d
+
+    /* full-list round trip, extra adjustment at both extremes */
+    cm.push {ra, s0-s11}, -64
+    cm.push {ra, s0-s5}, -80          /* base 32 + 48 extra */
+    li    s0, 0
+    li    s3, 0
+    cm.pop  {ra, s0-s5}, 80
+    cm.pop  {ra, s0-s11}, 64
+
+    /* short list, and the moves in both directions */
+    cm.push {ra}, -32
+    cm.mva01s s3, s4
+    cm.mvsa01 s6, s7
+    cm.mva01s s0, s0                  /* equal fields: legal for mva01s */
+    cm.pop  {ra}, 32
+
+    /* popret / popretz through real call frames */
+    jal   ra, zcmp_leaf
+    jal   ra, zcmp_leaf_z
+    /* a0 must be 0 here (popretz), and a branch proves both sides
+       agree on it */
+    bnez  a0, fail
+
 done:
     /* HTIF: a non-zero write to tohost with bit 0 set ends a Spike run.
        On the RTL this is just a store into the TCM, and the bench stops
@@ -201,6 +243,19 @@ fail:
 subroutine:
     addi  a0, a0, 1
     ret
+
+    /* Zcmp leaf functions for cm.popret / cm.popretz.  The frame the
+       push built is what the popret consumes, ra included. */
+zcmp_leaf:
+    cm.push {ra, s0-s1}, -16
+    li    s0, 0x600d0001
+    li    s1, 0x600d0002
+    cm.popret {ra, s0-s1}, 16
+
+zcmp_leaf_z:
+    cm.push {ra, s0-s3}, -32
+    li    a0, 0xbad0bad0          /* popretz must clear this */
+    cm.popretz {ra, s0-s3}, 32
 
     .section .tohost, "aw", @progbits
     .align 3

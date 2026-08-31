@@ -46,6 +46,9 @@ module tb_if_align;
   logic        word_valid, word_ready, word_err;
   logic [31:0] word_rdata, word_pc;
   logic        instr_valid, instr_err, instr_illegal, instr_compressed;
+  logic        instr_zcmp;   // observed for completeness; the walker's
+                             // classification of Zcmp encodings is
+                             // checked in block-decompress/block-zcmp
   logic [31:0] instr_rdata, instr_pc;
   logic        instr_ready;
 
@@ -64,6 +67,7 @@ module tb_if_align;
       .instr_pc_o        (instr_pc),
       .instr_err_o       (instr_err),
       .instr_illegal_o   (instr_illegal),
+      .instr_zcmp_o      (instr_zcmp),
       .instr_compressed_o(instr_compressed),
       .instr_ready_i     (instr_ready)
   );

@@ -33,10 +33,10 @@ CROSS      ?= riscv64-unknown-elf-
 CC         := $(CROSS)gcc
 OBJCOPY    := $(CROSS)objcopy
 OBJDUMP    := $(CROSS)objdump
-ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
+ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 ABI        := ilp32
 
-.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -222,6 +222,18 @@ block-decompress: $(BUILD)/tb_decompress.vvp
 	python3 scripts/check_decompress.py | tee $(BUILD)/block_decompress_check.log
 	@grep -q "^  PASS" $(BUILD)/block_decompress_check.log
 
+# The Zcmp bench dumps the full micro-op sequence of every flagged
+# encoding; check_zcmp.py replays each dump against a Spike commit log
+# generated from binutils-assembled cm.* mnemonics.
+$(BUILD)/tb_zcmp.vvp: rtl/core/cdriscv_32s_20_decompress.sv rtl/core/cdriscv_32s_20_zcmp.sv verif/block/zcmp/tb_zcmp.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_zcmp $^
+
+block-zcmp: $(BUILD)/tb_zcmp.vvp
+	$(VVP) $< | tee $(BUILD)/block_zcmp.log
+	@test -s $(BUILD)/zcmp_dump.txt || { echo "no dump produced"; exit 1; }
+	SPIKE=$(SPIKE) python3 scripts/check_zcmp.py | tee $(BUILD)/block_zcmp_check.log
+	@grep -q "^  PASS" $(BUILD)/block_zcmp_check.log
+
 $(BUILD)/tb_if_align.vvp: rtl/core/cdriscv_32s_20_if_align.sv rtl/core/cdriscv_32s_20_decompress.sv verif/block/if_align/tb_if_align.sv | $(BUILD)
 	$(IVERILOG) -g2012 -o $@ -s tb_if_align $^
 
@@ -251,7 +263,7 @@ block-csr-equiv: $(BUILD)/tb_csr_equiv.vvp
 	@grep -q "PASS" $(BUILD)/block_csr_equiv.log
 
 block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg \
-          block-decompress block-if-align block-decoder-equiv block-csr-equiv
+          block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv
 
 block: block-alu block-ecc block-multdiv block-clkmon block-20
 
@@ -260,7 +272,7 @@ block: block-alu block-ecc block-multdiv block-clkmon block-20
 # instruction streams.  SPIKE can be overridden; the default is where
 # scripts/build_spike.sh installs it.
 SPIKE      ?= /headless/verif-tools/spike/bin/spike
-COSIM_ARCH := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
+COSIM_ARCH := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 COSIM_SRC  := verif/core/cosim_isa.S
 COSIM_LD   := verif/core/link_cosim.ld
 
@@ -434,6 +446,25 @@ trap: $(BUILD)/tb_cdriscv_subsys.vvp $(BUILD)/trap_test.hex \
 	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex \
 	  +MAX_CYCLES=100000 | tee $(BUILD)/trap.log
 	@grep -q "PASS" $(BUILD)/trap.log
+
+# ------------------------------------------------- Zcmp directed test
+$(BUILD)/zcmp_test.elf: verif/core/zcmp_test.S tb/sw/link.ld | $(BUILD)
+	$(CC) -march=$(ARCH) -mabi=$(ABI) -nostdlib -nostartfiles \
+	  -T tb/sw/link.ld -o $@ verif/core/zcmp_test.S
+
+$(BUILD)/zcmp_test.bin: $(BUILD)/zcmp_test.elf
+	$(OBJCOPY) -O binary --only-section=.text $< $@
+
+# The sequence semantics the co-simulation cannot see: single
+# retirement (minstret), traps mid-sequence with sp untouched, and the
+# interrupt-at-boundary rule under a swept CLINT deadline.
+zcmp: $(BUILD)/tb_cdriscv_subsys.vvp $(BUILD)/zcmp_test.hex \
+      $(BUILD)/dtcm_zero.hex
+	$(VVP) $(BUILD)/tb_cdriscv_subsys.vvp \
+	  +ITCM_HEX=$(BUILD)/zcmp_test.hex \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex \
+	  +MAX_CYCLES=100000 | tee $(BUILD)/zcmp.log
+	@grep -q "PASS" $(BUILD)/zcmp.log
 
 # ------------------------------------------------- PMP directed test
 # The rest of the regression proves PMP does not fire (every region

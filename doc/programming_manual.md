@@ -30,7 +30,7 @@ functional safety standard is claimed.
 
 | Property | Value |
 |----------|-------|
-| ISA | `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb` |
+| ISA | `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp` |
 | Privilege | **machine mode only** — no U or S mode, no virtual memory |
 | Memory protection | **PMP, 8 regions**, gating data accesses and instruction fetch (§6a) |
 | Registers | 32 × 32-bit, `x0` hardwired zero, odd parity per word |
@@ -38,11 +38,13 @@ functional safety standard is claimed.
 | Misaligned data access | **traps** — no hardware fixup (§4.2) |
 | Compressed (C) | **implemented** — Zca and Zcb; IALIGN is 16 |
 | Bit manipulation | **Zba, Zbb, Zbs** |
-| Zcmp (`cm.push`/`cm.pop`) | not implemented — needs a core sequencer |
+| Zcmp (`cm.push`/`cm.pop`/`cm.popret`/`cm.popretz`/`cm.mv*`) | **implemented** — sequenced in the core, one retirement per instruction (§1.2) |
 | Atomics (A), float (F/D) | not implemented |
 
 `misa` reports I, M, B and C, and reports them because they are
-implemented — see §6 of
+implemented (Zcmp has no `misa` bit of its own — the RISC-V spec
+assigns it none, so implementing it changes the ISA string and not the
+CSR) — see §6 of
 [verification_findings_20.md](verification_findings_20.md) for what
 happened the one time it did not.
 
@@ -56,13 +58,44 @@ problem, not something this hardware will enforce.
 ### 1.1 Toolchain
 
 ```sh
-riscv32-unknown-elf-gcc -march=rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb \
+riscv32-unknown-elf-gcc -march=rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp \
     -mabi=ilp32 -nostdlib -nostartfiles -T link.ld -o app.elf app.c start.S
 ```
 
 `-mno-relax` was required in variant 1 because that core trapped on any
 16-bit encoding (finding V36). This variant implements C, so relaxation
 is safe and the flag is no longer needed.
+
+### 1.2 Zcmp sequences: atomicity, latency, restartability
+
+`cm.push` / `cm.pop` / `cm.popret` / `cm.popretz` / `cm.mva01s` /
+`cm.mvsa01` execute as an internal sequence of loads or stores plus a
+stack-pointer adjustment, but architecturally each is ONE instruction:
+one retirement, `minstret` increments once, and the trace/lockstep
+interface reports the 16-bit encoding at its own PC.
+
+Three consequences matter to software:
+
+* **Interrupt latency (WCET).** A sequence is not interruptible once
+  started; a pending interrupt is taken immediately before the
+  instruction or after it completes.  The worst case is
+  `cm.push {ra, s0-s11}`: 13 memory beats plus the sp write, about
+  28 cycles on zero-wait-state TCMs, plus any bus wait states.  Add
+  that bound to the interrupt-latency budget of any loop that uses the
+  full register list.
+* **Mid-sequence exceptions are restartable.** If a memory beat faults
+  (PMP denial, bus error, misaligned sp), the trap reports
+  `mepc` = the cm instruction's PC and `mtval` = the offending
+  address, and **sp has not moved** — the sp write is always the
+  sequence's final step.  An `mret` back to `mepc` therefore re-runs
+  the whole instruction correctly: its source values (sp and, for a
+  push, the saved registers) are intact.  Memory below the final sp
+  may have been written by the completed beats of a faulted `cm.push`;
+  the Zc specification declares that region volatile across the
+  instruction, so no software-visible state is lost.
+* **A denied beat never reaches the bus.**  The PMP check runs before
+  each beat is issued, exactly as it does for ordinary loads and
+  stores.
 
 Two things the assembler will now do that it did not before, both of
 which bit this repository's own tests (§9 of

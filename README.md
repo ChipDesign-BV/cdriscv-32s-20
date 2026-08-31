@@ -74,7 +74,7 @@ The design goal is not performance. It is that every structure in the
 subsystem is small enough to reason about, and that a fault in it is
 either detected by a mechanism that reports it, or bounded by one.
 
-* **Core** — `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb`.
+* **Core** — `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp`.
   Machine mode only, two stages, one
   instruction in the execute stage at a time. No forwarding, no
   speculation, no caches: every instruction has a statically known

@@ -7,8 +7,10 @@
 #
 #   python3 verif/core/cosim.py build/cosim_isa.elf --count 3000
 #
-# Compared: the (pc, instruction, rd, write data, memory address, store
-# data) sequence.  Both sides come from the same places: Spike's
+# Compared: the (pc, instruction, ordered-write-list) sequence, where
+# the write list carries every register write and every memory access
+# of the retirement -- one entry for most instructions, up to 14 for a
+# Zcmp sequence instruction.  Both sides come from the same places: Spike's
 # --log-commits, and on the RTL side the core's internal signals through
 # a hierarchical reference in the bench, so the RTL is not modified.
 # Still not compared: CSR state that no instruction reads back, and
@@ -25,18 +27,41 @@ import sys
 
 SPIKE = os.environ.get("SPIKE", "/headless/verif-tools/spike/bin/spike")
 VVP = os.environ.get("VVP", "vvp")
-ISA = "rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb"
+ISA = "rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp"
 
 # Spike --log-commits: "core   0: 3 0x800000dc (0x40e68833) x16 0xffffffff"
 # The disassembly line for the same instruction has no privilege field
 # and is skipped by requiring it.
-SPIKE_RE = re.compile(
-    r"core\s+\d+:\s+\d\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)"
-    r"(?:\s+x\s?(\d+)\s+0x([0-9a-f]+))?"
-    r"(?:\s+mem\s+0x([0-9a-f]+)(?:\s+0x([0-9a-f]+))?)?")
-RTL_RE = re.compile(
-    r"^TRACE ([0-9a-f]+) ([0-9a-f]+)(?: x(\d+) ([0-9a-f]+))?"
-    r"(?: mem ([0-9a-f]+)(?: ([0-9a-f]+))?)?")
+#
+# A Zcmp instruction (cm.push/cm.pop/...) retires as ONE commit with
+# MANY register and memory writes on the same line, so the tail of the
+# line is tokenised rather than matched once: every "xN 0xV" register
+# write and every "mem 0xA [0xV]" access, in the order printed.  The
+# same tokeniser reads the RTL's TRACE lines, whose bench prints the
+# identical order (registers sorted by index, then memory beats in
+# execution order), so an entry compares as (pc, instr, write-tuple)
+# for one write and many alike.  CSR commit tokens ("c768_mstatus ...")
+# do not match the register pattern and stay ignored, as before.
+SPIKE_HEAD = re.compile(
+    r"core\s+\d+:\s+\d\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)(.*)")
+RTL_HEAD = re.compile(r"^TRACE ([0-9a-f]+) ([0-9a-f]+)(.*)")
+# The register alternative requires a preceding space so the "x" inside
+# a hex value ("... 0x11111111") can never start a false token.
+WR_TOK = re.compile(
+    r"(?<=\s)x\s?(\d+)\s+(?:0x)?([0-9a-f]+)"
+    r"|mem\s+(?:0x)?([0-9a-f]+)(?:\s+(?:0x)?([0-9a-f]+))?")
+
+
+def parse_writes(tail):
+    """The ordered register/memory write list of one commit line."""
+    ev = []
+    for m in WR_TOK.finditer(tail):
+        if m.group(1) is not None:
+            ev.append(("x", int(m.group(1)), int(m.group(2), 16)))
+        else:
+            md = int(m.group(4), 16) if m.group(4) else None
+            ev.append(("mem", int(m.group(3), 16), md))
+    return tuple(ev)
 
 
 def symbols(elf, names):
@@ -88,14 +113,10 @@ def run_spike(elf, count, base, size):
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     trace = []
     for line in proc.stdout.splitlines() + proc.stderr.splitlines():
-        m = SPIKE_RE.search(line)
+        m = SPIKE_HEAD.search(line)
         if m:
-            rd = int(m.group(3)) if m.group(3) else None
-            wd = int(m.group(4), 16) if m.group(4) else None
-            ma = int(m.group(5), 16) if m.group(5) else None
-            md = int(m.group(6), 16) if m.group(6) else None
-            trace.append((int(m.group(1), 16), int(m.group(2), 16), rd, wd,
-                          ma, md))
+            trace.append((int(m.group(1), 16), int(m.group(2), 16),
+                          parse_writes(m.group(3))))
     return trace
 
 
@@ -117,14 +138,10 @@ def run_rtl(runner, hexfile, count, stops=None, stall=0):
     proc = subprocess.run(cmd, capture_output=True, text=True)
     trace = []
     for line in proc.stdout.splitlines():
-        m = RTL_RE.match(line)
+        m = RTL_HEAD.match(line)
         if m:
-            rd = int(m.group(3)) if m.group(3) else None
-            wd = int(m.group(4), 16) if m.group(4) else None
-            ma = int(m.group(5), 16) if m.group(5) else None
-            md = int(m.group(6), 16) if m.group(6) else None
-            trace.append((int(m.group(1), 16), int(m.group(2), 16), rd, wd,
-                          ma, md))
+            trace.append((int(m.group(1), 16), int(m.group(2), 16),
+                          parse_writes(m.group(3))))
         elif "FAULT" in line or "TIMEOUT" in line:
             sys.stderr.write("[cosim] RTL reported: %s\n" % line.strip())
     return trace
@@ -184,11 +201,12 @@ def main():
             lo = max(0, i - args.context)
             def fmt(e):
                 out = "pc=%08x %08x" % (e[0], e[1])
-                out += (" x%-2d=%08x" % (e[2], e[3]) if e[2] is not None
-                        else "            ")
-                if e[4] is not None:
-                    out += " m[%08x]" % e[4]
-                    out += "=%08x" % e[5] if e[5] is not None else " rd"
+                for w in e[2]:
+                    if w[0] == "x":
+                        out += " x%d=%08x" % (w[1], w[2])
+                    else:
+                        out += " m[%08x]" % w[1]
+                        out += "=%08x" % w[2] if w[2] is not None else " rd"
                 return out
             print("        %-5s %-46s %-46s" % ("idx", "spike", "rtl"))
             for j in range(lo, min(n, i + args.context)):

@@ -8,10 +8,15 @@
 // has an exact 32-bit equivalent, so the whole extension reduces to a
 // decode table and the pipeline never learns that compression exists.
 //
-// Zcmp is NOT here, and cannot be: cm.push / cm.pop / cm.popret move a
-// register LIST to or from the stack, which is several memory accesses
-// and a stack adjustment.  That is a sequencer in the core, not an
-// expansion, and it is tracked separately.
+// Zcmp is NOT expanded here, and cannot be: cm.push / cm.pop /
+// cm.popret move a register LIST to or from the stack, which is several
+// memory accesses and a stack adjustment -- a variable-length sequence,
+// not a 32-bit instruction.  This module therefore only *recognises*
+// the Zcmp encodings (zcmp_o; instr_o stays a nop for them) and the
+// core runs the sequence from its ST_SEQ state, reading the step table
+// in cdriscv_32s_20_zcmp.  Reserved Zcmp code points (rlist < 4,
+// cm.mvsa01 with r1s' == r2s', the unassigned funct5 values) stay
+// illegal here.
 //
 // The immediates are where this goes wrong.  Every RVC format scrambles
 // its immediate bits differently and no two are alike, so each is
@@ -32,7 +37,8 @@
 module cdriscv_32s_20_decompress (
     input  logic [15:0] instr_i,
     output logic [31:0] instr_o,
-    output logic        illegal_o
+    output logic        illegal_o,
+    output logic        zcmp_o        // a (legal) Zcmp sequence instruction
 );
 
   // ---- register fields ------------------------------------------------
@@ -105,6 +111,7 @@ module cdriscv_32s_20_decompress (
   always_comb begin
     instr_o   = 32'h0000_0013;      // nop, so an unexpanded word is inert
     illegal_o = 1'b0;
+    zcmp_o    = 1'b0;
 
     unique case (instr_i[1:0])
 
@@ -251,6 +258,34 @@ module cdriscv_32s_20_decompress (
             end
           end
           3'b110 : instr_o = s_type(imm_swsp, rs2, 5'd2, 3'b010, 7'h23); // c.swsp
+          // ---- Zcmp ----
+          // Flagged, never expanded: the core sequences these from the
+          // step table in cdriscv_32s_20_zcmp; instr_o stays the nop.
+          3'b101 : begin
+            if (instr_i[12:11] == 2'b11 && instr_i[8] == 1'b0) begin
+              // cm.push / cm.pop / cm.popretz / cm.popret, selected by
+              // instr[10:9].  rlist values 0..3 are reserved (binutils
+              // is lax and disassembles them; the spec reserves them,
+              // so they trap here, and check_decompress.py carries the
+              // commented exception like the shamt[5] ones).
+              if (instr_i[7:4] >= 4'd4) zcmp_o = 1'b1;
+              else                      illegal_o = 1'b1;
+            end else if (instr_i[12:10] == 3'b011 && instr_i[5] == 1'b1) begin
+              // cm.mvsa01 (instr[6]=0) / cm.mva01s (instr[6]=1).
+              // cm.mvsa01 with r1s' == r2s' is reserved; cm.mva01s with
+              // equal fields is legal (both destinations get the same
+              // value, no aliasing).
+              if (!instr_i[6] && (instr_i[9:7] == instr_i[4:2]))
+                illegal_o = 1'b1;
+              else
+                zcmp_o = 1'b1;
+            end else begin
+              // funct5 with bit 8 set, and the [6:5] = 00/10 half of
+              // the 101011 row (Zcmt's cm.jt/cm.jalt live elsewhere):
+              // all reserved or unimplemented here.
+              illegal_o = 1'b1;
+            end
+          end
           default : illegal_o = 1'b1;
         endcase
       end

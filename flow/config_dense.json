@@ -16,6 +16,7 @@
     "dir::../rtl/core/cdriscv_32s_20_lsu.sv",
     "dir::../rtl/core/cdriscv_32s_20_pmp.sv",
     "dir::../rtl/core/cdriscv_32s_20_csr.sv",
+    "dir::../rtl/core/cdriscv_32s_20_zcmp.sv",
     "dir::../rtl/core/cdriscv_32s_20_decompress.sv",
     "dir::../rtl/core/cdriscv_32s_20_if_align.sv",
     "dir::../rtl/core/cdriscv_32s_20_if_stage.sv",

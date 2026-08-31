@@ -603,3 +603,46 @@ KLayout DRC 0, GDS XOR 0, illegal overlap clear, hold clean at every
 corner, and LVS **matching uniquely** across 153 626 devices and 79 499
 nets. The design is physically implementable at this die size; what it
 is not, yet, is timing-closed at 25 MHz across PVT.
+
+## 16. Zcmp: what the tools settled that memory would have got wrong
+
+The Zcmp sequencer went in against ground truth taken from the
+installed tools, not from a reading of the spec, and three details were
+worth pinning down before any RTL existed:
+
+**Spike's commit log fixed the retirement contract.** One cm.push of
+four registers is ONE commit line carrying the new sp and all four
+stores; the register writes are printed sorted by index and the memory
+beats in execution order (descending addresses, highest list member
+just below the incoming sp).  That line format became the RTL trace
+contract: the cosim bench accumulates a sequence's writes and prints
+them the same way, and cosim.py tokenises the whole write list instead
+of its old one-register-one-memory-field match.  The tokeniser needed
+one regex subtlety: an `x` register token must require a preceding
+space, or the `x` inside a hex value (`0x11111111`) can start a false
+match when a store value happens to be all decimal digits.
+
+**binutils is lax about reserved rlist values, again.** The push/pop
+family reserves rlist 0..3; binutils 2.46 happily disassembles those
+code points as `cm.push {ra}, 0`.  The DUT traps them, and
+check_decompress.py carries the commented exception -- the same class
+as the shamt[5] shifts and c.addi16sp nzimm=0 from §2.  cm.mvsa01 with
+r1s' = r2s' is properly rejected by binutils (`.insn`), so no exception
+was needed there.
+
+**The independent reference could be generated, not restated.**
+check_zcmp.py never computes an address or an adjustment of its own:
+it seeds a program whose every value flows through Spike's commit log,
+maintains registers and memory from that log, and interprets the
+dumped RTL step table against it.  The one place the checker's own
+arithmetic could have leaked in -- the mnemonic operand for the base
+adjustment -- is laundered through binutils (mnemonic to encoding) and
+Spike (encoding to sp delta) before anything is compared.
+
+One deliberate asymmetry is recorded rather than hidden: the
+sp-written-first mutant produces an architecturally identical clean
+run (same stores, same final sp), so the co-simulation cannot kill it.
+It is killed by the directed test's PMP-denied push, which finds sp
+already moved at the trap (exit code 18) -- the restartability property
+is only observable on the trap path, which is exactly why the directed
+test exists next to the cosim.

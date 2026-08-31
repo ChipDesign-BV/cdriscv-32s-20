@@ -159,6 +159,24 @@ module tb_cosim #(
   string       trace_line;
   bit          quiet, have_stop;
 
+  // ---- Zcmp multi-write retirement ---------------------------------
+  // A cm.* instruction retires ONCE but performs several register and
+  // memory writes on the way; Spike logs them all on that one commit
+  // line.  Each ST_SEQ cycle's write is recorded here and printed with
+  // the single TRACE line at retirement: register writes sorted by
+  // index (Spike's convention) and memory beats in execution order
+  // (descending addresses, which is also Spike's order).  Worst case is
+  // cm.push {ra, s0-s11}: 13 memory beats plus the sp write.
+  int unsigned zq_nreg, zq_nmem;
+  logic [4:0]  zq_reg  [16];
+  logic [31:0] zq_rval [16];
+  bit          zq_st   [16];
+  logic [31:0] zq_addr [16];
+  logic [31:0] zq_val  [16];
+  int          zq_i, zq_j;
+  logic [4:0]  zq_tr;
+  logic [31:0] zq_tv;
+
   initial begin
     fetch_enable = 1'b0;
     nretire      = 0;
@@ -230,13 +248,61 @@ module tb_cosim #(
     if (rst_n) begin
       cycle <= cycle + 1;
 
+      // Zcmp write accumulation.  The counters clear on any cycle the
+      // core is not sequencing, which covers both a completed sequence
+      // (the cycle after its retirement is ST_RUN) and one abandoned by
+      // a mid-sequence trap.
+      if (!`CORE_PATH.seq_active) begin
+        zq_nreg = 0;
+        zq_nmem = 0;
+      end else begin
+        if (`CORE_PATH.rf_we && (`CORE_PATH.rd_addr_eff != 5'd0)) begin
+          zq_reg[zq_nreg]  = `CORE_PATH.rd_addr_eff;
+          zq_rval[zq_nreg] = `CORE_PATH.rf_wdata;
+          zq_nreg++;
+        end
+        if (`CORE_PATH.lsu_valid && !`CORE_PATH.lsu_err) begin
+          // Sequence beats are whole words, so the bus address is the
+          // byte address and the write data needs no lane unshifting --
+          // but they are still taken from the bus wires, for the same
+          // reason as below.
+          zq_st[zq_nmem]   = `CORE_PATH.data_we_o;
+          zq_addr[zq_nmem] = {`CORE_PATH.data_addr_o[31:2], 2'b00};
+          zq_val[zq_nmem]  = `CORE_PATH.data_wdata_o;
+          zq_nmem++;
+        end
+      end
+
       if (retire_valid) begin
         // The line mirrors Spike's commit log: the register write if
         // there is one (x0 is suppressed, as Spike suppresses it), then
         // the memory access if there is one -- address only for a load,
         // address and data for a store, with the data truncated to the
         // access width the way Spike reports it.
-        if (!quiet) begin
+        if (!quiet && `CORE_PATH.seq_active) begin
+          // One line for the whole cm.* sequence, mirroring Spike's
+          // single commit line for it.
+          for (zq_i = 0; zq_i < zq_nreg; zq_i++) begin      // sort by index
+            for (zq_j = zq_i + 1; zq_j < zq_nreg; zq_j++) begin
+              if (zq_reg[zq_j] < zq_reg[zq_i]) begin
+                zq_tr = zq_reg[zq_i];  zq_reg[zq_i] = zq_reg[zq_j];  zq_reg[zq_j] = zq_tr;
+                zq_tv = zq_rval[zq_i]; zq_rval[zq_i] = zq_rval[zq_j]; zq_rval[zq_j] = zq_tv;
+              end
+            end
+          end
+          trace_line = $sformatf("TRACE %08x %08x", retire_pc, retire_instr);
+          for (zq_i = 0; zq_i < zq_nreg; zq_i++)
+            trace_line = {trace_line, $sformatf(" x%0d %08x",
+                          zq_reg[zq_i], zq_rval[zq_i])};
+          for (zq_i = 0; zq_i < zq_nmem; zq_i++) begin
+            if (zq_st[zq_i])
+              trace_line = {trace_line, $sformatf(" mem %08x %0x",
+                            zq_addr[zq_i], zq_val[zq_i])};
+            else
+              trace_line = {trace_line, $sformatf(" mem %08x", zq_addr[zq_i])};
+          end
+          $display("%s", trace_line);
+        end else if (!quiet) begin
           trace_line = $sformatf("TRACE %08x %08x", retire_pc, retire_instr);
           if (`CORE_PATH.rf_we && (`CORE_PATH.rd_addr != 5'd0)) begin
             trace_line = {trace_line, $sformatf(" x%0d %08x",

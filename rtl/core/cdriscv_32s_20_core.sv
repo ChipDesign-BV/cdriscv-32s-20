@@ -10,6 +10,21 @@
 // structure a safety analysis (FMEDA) has to reason about stays small
 // and every instruction has a bounded, statically known latency.
 //
+// Zcmp (cm.push / cm.pop / cm.popret / cm.popretz / cm.mva01s /
+// cm.mvsa01) is the one extension that is a SEQUENCE rather than an
+// instruction: the decompressor flags the encoding, and ST_SEQ walks
+// the step table in cdriscv_32s_20_zcmp -- one LSU access or one
+// register write per step, reusing the ordinary one-at-a-time
+// datapath.  The whole sequence retires as ONE instruction (one
+// retire_valid, pc += 2, the 16-bit fetched encoding), it is not
+// interruptible once started (interrupts are taken at instruction
+// boundaries only -- see start_seq), and the sp write is always the
+// LAST step so a faulting memory beat leaves sp untouched and
+// mepc = the cm PC restarts the instruction cleanly.  Worst case is
+// cm.push {ra, s0-s11}: 13 memory beats plus the sp write, a bounded
+// added interrupt latency of ~28 cycles plus bus wait states -- a WCET
+// fact, recorded in doc/programming_manual.md.
+//
 // STATUS: block-verified (doc/variant_status.md, section 2) and
 // instantiated by the subsystem.  No signoff gate is met in this
 // repository -- see README.md.  NOT qualified for safety-critical use.
@@ -88,6 +103,7 @@ module cdriscv_32s_20_core
   logic [31:0] instr_pc;
   logic        instr_err;
   logic        instr_illegal_c;  // illegal compressed encoding
+  logic        instr_zcmp;       // legal Zcmp sequence instruction
   logic        instr_compressed;
   logic        instr_ready;
 
@@ -137,6 +153,7 @@ module cdriscv_32s_20_core
       .instr_pc_o        (instr_pc),
       .instr_err_o       (instr_err),
       .instr_illegal_o   (instr_illegal_c),
+      .instr_zcmp_o      (instr_zcmp),
       .instr_compressed_o(instr_compressed),
       .instr_raw_o       (instr_raw),
       .instr_ready_i     (instr_ready)
@@ -206,6 +223,66 @@ module cdriscv_32s_20_core
   );
 
   // ------------------------------------------------------------------
+  // Zcmp sequencer
+  // ------------------------------------------------------------------
+  // The step table is a pure function of the raw 16-bit encoding and a
+  // step counter; the control lives with the FSM below (ST_SEQ).  Every
+  // datapath resource is the existing one -- the LSU one access at a
+  // time, the ALU for the moves and the final sp add, the 2R1W register
+  // file -- selected through the *_eff muxes that follow, so the
+  // sequencer adds control, not datapath.  Everything here is a
+  // function of core-internal state and core inputs only, which is what
+  // keeps the delayed lockstep checker core cycle-identical.
+  logic        seq_active;      // state_q == ST_SEQ (assigned at the FSM)
+  logic [3:0]  seq_idx_q;       // current step
+  logic        seq_pend_q;      // LSU beat issued, response outstanding
+
+  logic        seq_mem, seq_we, seq_a_zero, seq_wb, seq_last, seq_ret;
+  logic [4:0]  seq_rs1, seq_rs2, seq_rd;
+  logic [31:0] seq_imm;
+
+  cdriscv_32s_20_zcmp u_zcmp (
+      .instr_i     (instr_raw[15:0]),
+      .step_i      (seq_idx_q),
+      .mem_o       (seq_mem),
+      .we_o        (seq_we),
+      .rs1_o       (seq_rs1),
+      .rs2_o       (seq_rs2),
+      .rd_o        (seq_rd),
+      .imm_o       (seq_imm),
+      .op_a_zero_o (seq_a_zero),
+      .wb_o        (seq_wb),
+      .last_o      (seq_last),
+      .ret_o       (seq_ret)
+  );
+
+  // Effective (post-sequencer) selections.  Outside ST_SEQ every one of
+  // these is the decoder's own output, so the base ISA path is
+  // untouched by construction.
+  logic [4:0]  rs1_addr_eff, rs2_addr_eff, rd_addr_eff;
+  logic [31:0] imm_eff;
+  logic        ren_a, ren_b;
+  logic        lsu_we_eff, lsu_sign_ext_eff;
+  logic [1:0]  lsu_size_eff;
+
+  assign rs1_addr_eff = seq_active ? seq_rs1 : rs1_addr;
+  assign rs2_addr_eff = seq_active ? seq_rs2 : rs2_addr;
+  assign rd_addr_eff  = seq_active ? seq_rd  : rd_addr;
+  assign imm_eff      = seq_active ? seq_imm : imm;
+
+  // Read enables gate the parity check: enable exactly the ports a step
+  // consumes (rs1 for every step except a0 = 0; rs2 for a store beat
+  // and for the ra read of a popret/popretz final step).
+  assign ren_a = seq_active ? ~seq_a_zero
+                            : (rs1_used & instr_valid);
+  assign ren_b = seq_active ? (seq_we | (seq_last & seq_ret))
+                            : (rs2_used & instr_valid);
+
+  assign lsu_we_eff       = seq_active ? seq_we  : lsu_we;
+  assign lsu_size_eff     = seq_active ? LS_WORD : lsu_size;
+  assign lsu_sign_ext_eff = seq_active ? 1'b0    : lsu_sign_ext;
+
+  // ------------------------------------------------------------------
   // Register file
   // ------------------------------------------------------------------
   logic [31:0] rs1_data, rs2_data;
@@ -218,13 +295,13 @@ module cdriscv_32s_20_core
   ) u_regfile (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
-      .raddr_a_i (rs1_addr),
-      .ren_a_i   (rs1_used & instr_valid),
+      .raddr_a_i (rs1_addr_eff),
+      .ren_a_i   (ren_a),
       .rdata_a_o (rs1_data),
-      .raddr_b_i (rs2_addr),
-      .ren_b_i   (rs2_used & instr_valid),
+      .raddr_b_i (rs2_addr_eff),
+      .ren_b_i   (ren_b),
       .rdata_b_o (rs2_data),
-      .waddr_i   (rd_addr),
+      .waddr_i   (rd_addr_eff),
       .wdata_i   (rf_wdata),
       .we_i      (rf_we),
       .par_err_o (rf_par_err)
@@ -235,8 +312,21 @@ module cdriscv_32s_20_core
   // ------------------------------------------------------------------
   logic [31:0] operand_a, operand_b, alu_result;
 
+  // A Zcmp step only ever needs ADD over (rs1 or zero) and the step
+  // immediate: the moves are rs1 + 0, a0 = 0 is zero + 0, and the final
+  // step is sp +/- stack_adj.
+  op_a_sel_e op_a_sel_eff;
+  op_b_sel_e op_b_sel_eff;
+  alu_op_e   alu_op_eff;
+
+  assign op_a_sel_eff = op_a_sel_e'(seq_active
+                                    ? (seq_a_zero ? OP_A_ZERO : OP_A_RS1)
+                                    : op_a_sel);
+  assign op_b_sel_eff = op_b_sel_e'(seq_active ? OP_B_IMM : op_b_sel);
+  assign alu_op_eff   = alu_op_e'(seq_active ? ALU_ADD : alu_op);
+
   always_comb begin
-    unique case (op_a_sel)
+    unique case (op_a_sel_eff)
       OP_A_RS1:  operand_a = rs1_data;
       OP_A_PC:   operand_a = instr_pc;
       OP_A_ZERO: operand_a = 32'b0;
@@ -245,27 +335,28 @@ module cdriscv_32s_20_core
   end
 
   always_comb begin
-    unique case (op_b_sel)
+    unique case (op_b_sel_eff)
       OP_B_RS2:  operand_b = rs2_data;
-      OP_B_IMM:  operand_b = imm;
+      OP_B_IMM:  operand_b = imm_eff;
       // PC + 2 for a compressed jump: c.jal and c.jalr link the
       // address after a 2-byte instruction.
       OP_B_FOUR: operand_b = instr_compressed ? 32'd2 : 32'd4;
-      default:   operand_b = imm;
+      default:   operand_b = imm_eff;
     endcase
   end
 
   cdriscv_32s_20_alu u_alu (
-      .operator_i  (alu_op),
+      .operator_i  (alu_op_eff),
       .operand_a_i (operand_a),
       .operand_b_i (operand_b),
       .result_o    (alu_result)
   );
 
   // Address adder for loads/stores (rs1 + imm); the ALU is busy with
-  // PC + 4 for jumps and with the compare for branches.
+  // PC + 4 for jumps and with the compare for branches.  In ST_SEQ the
+  // same adder forms sp + step offset.
   logic [31:0] lsu_addr;
-  assign lsu_addr = rs1_data + imm;
+  assign lsu_addr = rs1_data + imm_eff;
 
   // ------------------------------------------------------------------
   // Multiply / divide
@@ -323,9 +414,9 @@ module cdriscv_32s_20_core
       .clk_i         (clk_i),
       .rst_ni        (rst_ni),
       .req_i         (lsu_req),
-      .we_i          (lsu_we),
-      .size_i        (lsu_size),
-      .sign_ext_i    (lsu_sign_ext),
+      .we_i          (lsu_we_eff),
+      .size_i        (lsu_size_eff),
+      .sign_ext_i    (lsu_sign_ext_eff),
       .addr_i        (lsu_addr),
       .wdata_i       (rs2_data),
       .kill_i        (1'b0),
@@ -347,14 +438,17 @@ module cdriscv_32s_20_core
   // ------------------------------------------------------------------
   // Control FSM
   // ------------------------------------------------------------------
-  typedef enum logic [1:0] {
+  typedef enum logic [2:0] {
     ST_RUN,
     ST_WAIT_LSU,
     ST_WAIT_MD,
-    ST_SLEEP
+    ST_SLEEP,
+    ST_SEQ        // walking a Zcmp sequence, one step at a time
   } state_e;
 
   state_e state_q, state_d;
+
+  assign seq_active = (state_q == ST_SEQ);
 
   logic instr_exec;
   assign instr_exec = instr_valid && fetch_enable_i && (state_q == ST_RUN);
@@ -372,7 +466,7 @@ module cdriscv_32s_20_core
   // ---- misalignment --------------------------------------------------
   logic lsu_misalign;
   always_comb begin
-    unique case (lsu_size)
+    unique case (lsu_size_eff)
       LS_WORD: lsu_misalign = (lsu_addr[1:0] != 2'b00);
       LS_HALF: lsu_misalign = (lsu_addr[0]   != 1'b0);
       default: lsu_misalign = 1'b0;
@@ -449,8 +543,44 @@ module cdriscv_32s_20_core
   end
 
   // A bus error on a data access is reported when the response arrives.
+  // In ST_SEQ the same applies to each Zcmp memory beat: sp has not
+  // been written yet (it is the final step), so the trap leaves the
+  // instruction restartable.
   logic lsu_exc;
-  assign lsu_exc = (state_q == ST_WAIT_LSU) && lsu_valid && lsu_err;
+  assign lsu_exc = ((state_q == ST_WAIT_LSU) || (state_q == ST_SEQ))
+                   && lsu_valid && lsu_err;
+
+  // ---- Zcmp sequence stepping ---------------------------------------
+  // A memory step issues one LSU access; before it is issued the same
+  // pre-issue checks apply as in ST_RUN -- misalignment first, then the
+  // PMP verdict -- so a denied beat never reaches the bus, exactly like
+  // a denied load or store.  mepc is the cm instruction's PC (instr_pc
+  // is held for the whole sequence), mtval is the beat's address, and
+  // because the sp write is the LAST step, sp is untouched: the
+  // instruction restarts cleanly, which the Zc spec permits since the
+  // memory below the final sp is volatile across the instruction.
+  logic       seq_issue;      // a memory step wants to issue this cycle
+  logic       seq_step_done;  // current step completes this cycle
+  logic       seq_exc;
+  logic [4:0] seq_exc_cause;
+
+  assign seq_issue     = seq_active && seq_mem && !seq_pend_q;
+  assign seq_step_done = seq_active && (seq_mem ? (lsu_valid && !lsu_err)
+                                                : 1'b1);
+
+  always_comb begin
+    seq_exc       = 1'b0;
+    seq_exc_cause = EXC_STORE_FAULT;
+    if (seq_issue) begin
+      if (lsu_misalign) begin
+        seq_exc       = 1'b1;
+        seq_exc_cause = seq_we ? EXC_STORE_MISALIGN : EXC_LOAD_MISALIGN;
+      end else if (!pmp_allow_data) begin
+        seq_exc       = 1'b1;
+        seq_exc_cause = seq_we ? EXC_STORE_FAULT : EXC_LOAD_FAULT;
+      end
+    end
+  end
 
   // ---- trap arbitration ----------------------------------------------
   logic        take_irq, take_exc, trap_taken;
@@ -458,8 +588,16 @@ module cdriscv_32s_20_core
   logic        trap_is_irq;
   logic [31:0] trap_tval;
 
+  // Interrupts are taken at instruction boundaries only: instr_exec is
+  // true only in ST_RUN, so a pending interrupt either pre-empts a Zcmp
+  // instruction before its first step (mepc = the cm PC, nothing has
+  // happened) or waits for the sequence to retire.  A sequence is never
+  // interrupted in the middle -- the simplest correct choice for a
+  // lockstep safety core, at a bounded worst-case latency cost (see the
+  // module header).
   assign take_irq = instr_exec && irq_pending;
-  assign take_exc = (instr_exec && !take_irq && exc_valid) || lsu_exc;
+  assign take_exc = (instr_exec && !take_irq && exc_valid) || lsu_exc
+                    || seq_exc;
 
   assign trap_taken  = take_irq || take_exc;
   assign trap_is_irq = take_irq;
@@ -469,7 +607,10 @@ module cdriscv_32s_20_core
       trap_cause = irq_cause;
       trap_tval  = 32'b0;
     end else if (lsu_exc) begin
-      trap_cause = lsu_we ? EXC_STORE_FAULT : EXC_LOAD_FAULT;
+      trap_cause = lsu_we_eff ? EXC_STORE_FAULT : EXC_LOAD_FAULT;
+      trap_tval  = lsu_addr;
+    end else if (seq_exc) begin
+      trap_cause = seq_exc_cause;
       trap_tval  = lsu_addr;
     end else begin
       trap_cause = exc_cause;
@@ -486,21 +627,30 @@ module cdriscv_32s_20_core
   end
 
   // ---- start / completion of multi-cycle operations -------------------
-  logic start_lsu, start_md;
+  logic start_lsu, start_md, start_seq;
   assign start_lsu = instr_exec && !take_irq && !take_exc && lsu_req_dec;
   // Multiplies complete combinationally, so only a divide starts the
   // sequential unit and only a divide stalls the pipeline.
   assign start_md  = instr_exec && !take_irq && !take_exc && md_req_dec && !md_is_mul;
+  // A Zcmp instruction enters the sequencer instead of retiring as the
+  // nop the decompressor handed the decoder.  take_irq wins here: this
+  // gate is the interrupt boundary described above.
+  assign start_seq = instr_exec && !take_irq && !take_exc && instr_zcmp;
 
-  assign lsu_req = start_lsu;
+  assign lsu_req = start_lsu || (seq_issue && !seq_exc);
   assign md_req  = start_md;
 
   always_comb begin
     retire = 1'b0;
     unique case (state_q)
-      ST_RUN:      retire = instr_exec && !take_irq && !take_exc && !start_lsu && !start_md;
+      ST_RUN:      retire = instr_exec && !take_irq && !take_exc && !start_lsu && !start_md && !start_seq;
       ST_WAIT_LSU: retire = lsu_valid && !lsu_err;
       ST_WAIT_MD:  retire = md_valid;
+      // One retirement for the whole Zcmp sequence, when its final step
+      // (always the sp write, or the second move) completes.  retire_pc
+      // and retire_instr report the held instr_pc / raw halfword, so
+      // the trace shows ONE instruction, exactly as Spike retires it.
+      ST_SEQ:      retire = seq_step_done && seq_last;
       default:     retire = 1'b0;
     endcase
   end
@@ -513,10 +663,14 @@ module cdriscv_32s_20_core
         if (trap_taken)      state_d = ST_RUN;
         else if (start_lsu)  state_d = ST_WAIT_LSU;
         else if (start_md)   state_d = ST_WAIT_MD;
+        else if (start_seq)  state_d = ST_SEQ;
         else if (retire && wfi) state_d = ST_SLEEP;
       end
       ST_WAIT_LSU: if (lsu_valid) state_d = ST_RUN;   // error is trapped in ST_RUN terms
       ST_WAIT_MD:  if (md_valid)  state_d = ST_RUN;
+      // A trap (denied/misaligned/erroring beat) abandons the sequence;
+      // the counter below resets on any exit from ST_SEQ.
+      ST_SEQ:      if (trap_taken || retire) state_d = ST_RUN;
       ST_SLEEP:    if (irq_wake || !fetch_enable_i) state_d = ST_RUN;
       default:     state_d = ST_RUN;
     endcase
@@ -527,6 +681,23 @@ module cdriscv_32s_20_core
     else         state_q <= state_d;
   end
 
+  // Zcmp step counter and outstanding-beat flag.  Both clear on any
+  // exit from (or outside of) ST_SEQ, so a trap mid-sequence leaves
+  // nothing armed and re-entry always starts at step 0.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      seq_idx_q  <= 4'd0;
+      seq_pend_q <= 1'b0;
+    end else if (state_d != ST_SEQ) begin
+      seq_idx_q  <= 4'd0;
+      seq_pend_q <= 1'b0;
+    end else begin
+      if (seq_issue && !seq_exc) seq_pend_q <= 1'b1;
+      else if (lsu_valid)        seq_pend_q <= 1'b0;
+      if (seq_step_done)         seq_idx_q  <= seq_idx_q + 4'd1;
+    end
+  end
+
   // ---- redirect --------------------------------------------------------
   always_comb begin
     redirect    = 1'b0;
@@ -535,6 +706,11 @@ module cdriscv_32s_20_core
     if (trap_taken) begin
       redirect    = 1'b1;
       redirect_pc = trap_vector;
+    end else if (retire && seq_active && seq_ret) begin
+      // cm.popret / cm.popretz: the final step reads the just-loaded ra
+      // on the rs2 port and returns to it, bit 0 cleared as JALR does.
+      redirect    = 1'b1;
+      redirect_pc = {rs2_data[31:1], 1'b0};
     end else if (retire && (state_q == ST_RUN)) begin
       if (mret) begin
         redirect    = 1'b1;
@@ -556,16 +732,30 @@ module cdriscv_32s_20_core
 
   // ---- write back -------------------------------------------------------
   always_comb begin
-    unique case (wb_sel)
-      WB_ALU: rf_wdata = alu_result;
-      WB_LSU: rf_wdata = lsu_rdata;
-      WB_CSR: rf_wdata = csr_rdata;
-      WB_MD:  rf_wdata = md_is_mul ? mul_result : md_result;
-      default:rf_wdata = alu_result;
-    endcase
+    if (seq_active) begin
+      // A load beat writes what the LSU returned; every other writing
+      // step (move, a0 = 0, the final sp adjust) goes through the ALU.
+      rf_wdata = seq_mem ? lsu_rdata : alu_result;
+    end else begin
+      unique case (wb_sel)
+        WB_ALU: rf_wdata = alu_result;
+        WB_LSU: rf_wdata = lsu_rdata;
+        WB_CSR: rf_wdata = csr_rdata;
+        WB_MD:  rf_wdata = md_is_mul ? mul_result : md_result;
+        default:rf_wdata = alu_result;
+      endcase
+    end
   end
 
-  assign rf_we = retire && rf_we_dec;
+  // In ST_SEQ each completing load beat writes its register as it
+  // lands, and each ALU step writes in its own cycle -- an erroring
+  // beat writes nothing (lsu_err) and a pre-issue denial never gets
+  // this far (seq_wb steps cannot fault).
+  logic seq_rf_we;
+  assign seq_rf_we = (seq_mem  && !seq_we && lsu_valid && !lsu_err)
+                   || (!seq_mem && seq_wb);
+
+  assign rf_we = seq_active ? seq_rf_we : (retire && rf_we_dec);
 
   // ------------------------------------------------------------------
   // CSR file
@@ -651,7 +841,7 @@ module cdriscv_32s_20_core
       .cfg_i          (pmp_cfg_struct),
       .addr_i         (pmp_addr),
       .req_addr_i     (lsu_addr),
-      .req_type_i     (lsu_we ? PMP_ACC_WRITE : PMP_ACC_READ),
+      .req_type_i     (lsu_we_eff ? PMP_ACC_WRITE : PMP_ACC_READ),
       .req_machine_i  (1'b1),
       .allow_o        (pmp_allow_data)
   );
