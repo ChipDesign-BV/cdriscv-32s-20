@@ -78,6 +78,10 @@ module tb_cdriscv_subsys;
   logic        core_sleep, retire_valid;
   logic [31:0] retire_pc, retire_instr;
 
+  // JTAG outputs: observed only, never checked -- the TAP is parked
+  // (see the instantiation), so tdo can only ever idle.
+  logic        tdo, tdo_oe;
+
   // A gate level netlist is one *configuration*, not a parameterisable
   // module -- synthesis has already resolved the parameters -- so the
   // overrides have to go away for that build.  They are the RTL
@@ -130,8 +134,8 @@ module tb_cdriscv_subsys;
       .tms_i          (1'b0),
       .tdi_i          (1'b0),
       .trst_ni        (1'b0),
-      .tdo_o          (),
-      .tdo_oe_o       (),
+      .tdo_o          (tdo),
+      .tdo_oe_o       (tdo_oe),
       .core_sleep_o   (core_sleep),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),

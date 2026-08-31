@@ -78,7 +78,7 @@ module cdriscv_32s_20_safety_ctrl
     // fault sources
     input  logic [NUM_INT_FAULTS-1:0] fault_int_i,   // synchronous to clk_i
     input  logic [NUM_EXT_FAULTS-1:0] fault_ext_i,   // asynchronous, from the SoC
-    input  logic [5:0]                cfg_err_i,     // config parity: wdog, clkmon,
+    input  logic [6:0]                cfg_err_i,     // config parity: wdog, clkmon,
                                                      // irqc, timer, ams, core mtvec
 
     // reactions
@@ -143,9 +143,12 @@ module cdriscv_32s_20_safety_ctrl
       .err_o  (cfg_err_own)
   );
 
-  logic [6:0]  cfg_src;
-  logic [6:0]  cfg_src_q;
-  assign cfg_src = {cfg_err_i[5:0], cfg_err_own};
+  // cfg_err_own sits at bit 0, so every additional source appends at the
+  // top and NO existing bit moves -- software reading CFGSRC keeps its
+  // bit numbering across this widening.  Bit 7 is the CLINT.
+  logic [7:0]  cfg_src;
+  logic [7:0]  cfg_src_q;
+  assign cfg_src = {cfg_err_i[6:0], cfg_err_own};
 
   // The one status contribution that no configuration can gate.
   logic [31:0] cfg_fault_set;
@@ -157,7 +160,7 @@ module cdriscv_32s_20_safety_ctrl
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       status_q    <= 32'b0;
-      cfg_src_q   <= 7'b0;
+      cfg_src_q   <= 8'b0;
       enable_q    <= 32'hffff_ffff;
       react_irq_q <= 32'hffff_ffff;
       react_rst_q <= 32'b0;
@@ -285,7 +288,7 @@ module cdriscv_32s_20_safety_ctrl
         8'h14:   prdata_o = {28'b0, lock_q, pin_tog_q, pin_inv_q, ctrl_en_q};
         8'h1c:   prdata_o = {16'b0, pin_div_q};
         8'h20:   prdata_o = fault_raw;
-        8'h28:   prdata_o = {25'b0, cfg_src_q};
+        8'h28:   prdata_o = {24'b0, cfg_src_q};
         default: prdata_o = 32'b0;
       endcase
     end

@@ -5,9 +5,9 @@ with higher performance.**
 
 This is **variant 2** of [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10).
 It starts from that design and adds a wider ISA (bit manipulation and
-compressed instructions), physical memory protection and a JTAG TAP.
-End-to-end bus protection and a standard CLINT are written and
-block-verified but not yet in the subsystem — [doc/variant_status.md](doc/variant_status.md)
+compressed instructions), physical memory protection, a standard CLINT
+and a JTAG TAP. End-to-end bus protection is written and block-verified
+but not yet in the subsystem — [doc/variant_status.md](doc/variant_status.md)
 says per module which is which. Variant 1 remains the signed-off
 configuration and is not modified by anything here.
 

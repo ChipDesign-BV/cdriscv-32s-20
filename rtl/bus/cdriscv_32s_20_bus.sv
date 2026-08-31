@@ -27,7 +27,13 @@ module cdriscv_32s_20_bus #(
     parameter logic [31:0] DtcmBase   = 32'h1000_0000,
     parameter int unsigned DtcmBytes  = 16384,
     parameter logic [31:0] PeriphBase = 32'h2000_0000,
-    parameter int unsigned PeriphBytes= 4096
+    parameter int unsigned PeriphBytes= 4096,
+    // The CLINT decodes the *standard* RISC-V map -- msip at +0x0000,
+    // mtimecmp at +0x4000, mtime at +0xBFF8 -- which spans 48 KB and is
+    // why it cannot live in a 256-byte APB peripheral slot.  0x0200_0000
+    // is where the map conventionally sits.
+    parameter logic [31:0] ClintBase  = 32'h0200_0000,
+    parameter int unsigned ClintBytes = 65536
 )(
     input  logic        clk_i,
     input  logic        rst_ni,
@@ -73,6 +79,17 @@ module cdriscv_32s_20_bus #(
     input  logic [31:0] dtcm_rdata_i,
     input  logic        dtcm_err_i,
 
+    // ---- slave 3: CLINT ----
+    output logic        clint_req_o,
+    input  logic        clint_gnt_i,
+    input  logic        clint_rvalid_i,
+    output logic        clint_we_o,
+    output logic [3:0]  clint_be_o,
+    output logic [15:0] clint_addr_o,   // offset within the window
+    output logic [31:0] clint_wdata_o,
+    input  logic [31:0] clint_rdata_i,
+    input  logic        clint_err_i,
+
     // ---- slave 2: peripheral bridge ----
     output logic        periph_req_o,
     input  logic        periph_gnt_i,
@@ -98,16 +115,17 @@ module cdriscv_32s_20_bus #(
   endfunction
 
   logic i_hit_itcm;
-  logic d_hit_itcm, d_hit_dtcm, d_hit_periph;
+  logic d_hit_itcm, d_hit_dtcm, d_hit_periph, d_hit_clint;
   logic i_unmapped, d_unmapped;
 
   assign i_hit_itcm   = in_range(instr_addr_i, ItcmBase,   ItcmBytes);
   assign d_hit_itcm   = in_range(data_addr_i,  ItcmBase,   ItcmBytes);
   assign d_hit_dtcm   = in_range(data_addr_i,  DtcmBase,   DtcmBytes);
   assign d_hit_periph = in_range(data_addr_i,  PeriphBase, PeriphBytes);
+  assign d_hit_clint  = in_range(data_addr_i,  ClintBase,  ClintBytes);
 
   assign i_unmapped = !i_hit_itcm;
-  assign d_unmapped = !(d_hit_itcm || d_hit_dtcm || d_hit_periph);
+  assign d_unmapped = !(d_hit_itcm || d_hit_dtcm || d_hit_periph || d_hit_clint);
 
   // ------------------------------------------------------------------
   // I-TCM arbitration: the data master wins
@@ -136,6 +154,19 @@ module cdriscv_32s_20_bus #(
   assign periph_be_o    = data_be_i;
   assign periph_addr_o  = data_addr_i;
   assign periph_wdata_o = data_wdata_i;
+
+  // The CLINT is word-only and carries no byte enables: a sub-word write
+  // to a 64-bit counter has no defined meaning, and silently widening one
+  // to a word write would corrupt the other three bytes.  The slave
+  // reports a sub-word access as an error rather than performing it.
+  assign clint_req_o   = data_req_i && d_hit_clint;
+  assign clint_we_o    = data_we_i;
+  assign clint_be_o    = data_be_i;
+  // The window has just been decoded, so hand on the offset rather than
+  // the full address: passing both would leave the slave able to
+  // disagree with the decode that selected it.
+  assign clint_addr_o  = data_addr_i[15:0];
+  assign clint_wdata_o = data_wdata_i;
 
   // ------------------------------------------------------------------
   // Error responder for unmapped accesses
@@ -190,6 +221,7 @@ module cdriscv_32s_20_bus #(
   assign data_gnt_o  = (itcm_req_d   && itcm_gnt_i)   ||
                        (dtcm_req_o   && dtcm_gnt_i)   ||
                        (periph_req_o && periph_gnt_i) ||
+                       (clint_req_o  && clint_gnt_i)  ||
                         err_gnt_d;
 
   // ------------------------------------------------------------------
@@ -219,6 +251,10 @@ module cdriscv_32s_20_bus #(
       data_rvalid_o = 1'b1;
       data_rdata_o  = periph_rdata_i;
       data_err_o    = periph_err_i;
+    end else if (clint_rvalid_i) begin
+      data_rvalid_o = 1'b1;
+      data_rdata_o  = clint_rdata_i;
+      data_err_o    = clint_err_i;
     end else if (err_rvalid_q && err_owner_q) begin
       data_rvalid_o = 1'b1;
       data_rdata_o  = 32'hdead_beef;

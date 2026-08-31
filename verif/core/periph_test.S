@@ -3,10 +3,18 @@
  *
  * Peripheral and interrupt test.
  *
- * Covers what nothing else reaches: the machine timer, the interrupt
- * controller, all three interrupt causes, WFI, the watchdog and the
- * memory BIST.  Before this test the core had never taken an interrupt
- * at all -- see the coverage baseline in verification_findings.md.
+ * Covers what nothing else reaches: the CLINT (machine timer and
+ * software interrupt at the standard map, 0x0200_0000), the APB timer
+ * re-routed through the interrupt controller as source 16, the
+ * interrupt controller, all three interrupt causes, WFI, the watchdog
+ * and the memory BIST.  Before this test the core had never taken an
+ * interrupt at all -- see the coverage baseline in
+ * verification_findings.md.
+ *
+ * MTIP and MSIP are owned by the CLINT now.  The APB timer at slot 2
+ * keeps its registers but its irq is an ordinary peripheral source and
+ * must arrive as the external interrupt; the irq_ctrl's own MSIP
+ * register (0x0c) no longer reaches the core and is not tested.
  *
  * Each failing check writes its own number to the exit register.
  *
@@ -22,12 +30,19 @@
     .equ IRQC_BASE,   0x20000600
     .equ EXIT_REG,    0x20000f00
 
+    /* CLINT, standard layout.  The 64 KB window's offsets are too big
+     * for a 12-bit immediate, so each register block gets its own base.
+     */
+    .equ CLINT_MSIP,  0x02000000
+    .equ CLINT_CMP,   0x02004000    /* lo at +0, hi at +4 */
+    .equ CLINT_TIME,  0x0200bff8    /* lo at +0, hi at +4 */
+
     .equ MTIMECMP_LO, 0x08
     .equ MTIMECMP_HI, 0x0c
     .equ TMR_CTRL,    0x10
 
     .equ IRQC_ENABLE, 0x04
-    .equ IRQC_MSIP,   0x0c
+    .equ IRQC_CLAIM,  0x08
     .equ IRQC_MODE,   0x10
 
     .equ WD_CTRL,     0x00
@@ -89,17 +104,20 @@ _start:
     li   s0, SAFETY_BASE
     li   s1, TIMER_BASE
     li   s3, IRQC_BASE
+    li   s7, CLINT_CMP
+    li   s8, CLINT_TIME
 
-    /* ---- 1: machine timer interrupt --------------------------------
-     * The compare value is 64 bit: the high word must be zero for a
-     * small deadline.  Writing -1 there, as a first version of this
-     * test did, puts the deadline centuries away and nothing fires.
+    /* ---- 1: machine timer interrupt (CLINT) ------------------------
+     * mtime free-runs from reset (prescaler resets to 0 = one tick per
+     * cycle), so the deadline is relative to a read of mtime, not to
+     * zero.  Write order hi-then-lo: with hi=0 and lo still at reset's
+     * all-ones the comparator stays above mtime, so nothing fires
+     * between the two halves.
      */
-    sw   zero, MTIMECMP_HI(s1)
-    li   t0, 200
-    sw   t0, MTIMECMP_LO(s1)
-    li   t0, 1
-    sw   t0, TMR_CTRL(s1)       /* counter enable */
+    sw   zero, 4(s7)            /* mtimecmp hi */
+    lw   t0, 0(s8)              /* current mtime low */
+    addi t0, t0, 200
+    sw   t0, 0(s7)              /* mtimecmp lo: deadline armed */
 
     li   t0, MIE_MTIE
     csrw mie, t0
@@ -117,11 +135,11 @@ _start:
 2:
 
     /* ---- 2: WFI wakes on an interrupt ------------------------------ */
-    sw   zero, MTIMECMP_HI(s1)
-    lw   t0, 0(s1)              /* current mtime low */
+    andi s2, s2, ~1             /* clear the timer flag before arming */
+    sw   zero, 4(s7)            /* hi=0; lo is all-ones from the handler */
+    lw   t0, 0(s8)
     addi t0, t0, 100
-    sw   t0, MTIMECMP_LO(s1)
-    andi s2, s2, ~1             /* clear the timer flag */
+    sw   t0, 0(s7)
     wfi
     andi t0, s2, 1
     li   a0, 2
@@ -129,8 +147,8 @@ _start:
 
     /* ---- 3: external interrupt through the interrupt controller ---- */
     li   t0, -1
-    sw   t0, MTIMECMP_HI(s1)
-    sw   t0, MTIMECMP_LO(s1)    /* silence the timer */
+    sw   t0, 4(s7)              /* silence the CLINT: hi first, so the */
+    sw   t0, 0(s7)              /* comparator is never below mtime     */
 
     li   t0, 1
     sw   t0, IRQC_ENABLE(s3)    /* source 0 = safety controller */
@@ -151,28 +169,57 @@ _start:
     j    fail
 4:
 
-    /* ---- 4: software interrupt ------------------------------------- */
-    li   t0, MIE_MSIE
-    csrw mie, t0
+    /* ---- 4: APB timer as interrupt controller source 16 ------------
+     * The slot-2 timer keeps its registers but no longer drives MTIP;
+     * its irq must arrive as the external interrupt instead.  Same
+     * hi-then-lo arming as the CLINT: its mtime also free-runs from
+     * reset.
+     */
+    li   t0, 0x10000
+    sw   t0, IRQC_ENABLE(s3)    /* source 16 only */
+    sw   zero, IRQC_MODE(s3)    /* level sensitive */
+
+    sw   zero, MTIMECMP_HI(s1)
+    lw   t0, 0(s1)              /* current mtime low */
+    addi t0, t0, 200
+    sw   t0, MTIMECMP_LO(s1)
     li   t0, 1
-    sw   t0, IRQC_MSIP(s3)
+    sw   t0, TMR_CTRL(s1)       /* counter enable (reset default, kept explicit) */
 
     li   s4, 0
-5:  andi t0, s2, 4
+5:  andi t0, s2, 8
     bnez t0, 6f
     addi s4, s4, 1
     li   t1, 20000
     blt  s4, t1, 5b
     li   a0, 4
-    j    fail
+    j    fail                   /* the re-routed timer irq never arrived */
 6:
+    sw   zero, IRQC_ENABLE(s3)  /* done with the controller */
+
+    /* ---- 5: software interrupt (CLINT msip) ------------------------ */
+    li   t0, MIE_MSIE
+    csrw mie, t0
+    li   t1, CLINT_MSIP
+    li   t0, 1
+    sw   t0, 0(t1)              /* msip is CLINT-owned now, not the irq_ctrl's */
+
+    li   s4, 0
+7:  andi t0, s2, 4
+    bnez t0, 8f
+    addi s4, s4, 1
+    li   t1, 20000
+    blt  s4, t1, 7b
+    li   a0, 5
+    j    fail
+8:
     csrw mie, zero              /* interrupts off for the rest */
     li   t0, MSTATUS_MIE
     csrc mstatus, t0
     li   t0, -1
     sw   t0, 0(s0)              /* clear the safety status */
 
-    /* ---- 5: watchdog services correctly ---------------------------- */
+    /* ---- 6: watchdog services correctly ---------------------------- */
     li   s5, WDOG_BASE
     li   t0, 3000
     sw   t0, WD_PERIOD(s5)
@@ -180,40 +227,40 @@ _start:
     sw   t0, WD_CTRL(s5)
 
     li   s4, 0
-7:  li   t0, KEY_A              /* service: two step key */
+9:  li   t0, KEY_A              /* service: two step key */
     sw   t0, WD_SERVICE(s5)
     li   t0, KEY_B
     sw   t0, WD_SERVICE(s5)
     addi s4, s4, 1
     li   t1, 8
-    blt  s4, t1, 7b
+    blt  s4, t1, 9b
 
     lw   t0, 0(s0)              /* safety status: the watchdog bit is 6 */
     srli t0, t0, 6
     andi t0, t0, 1
-    li   a0, 5
+    li   a0, 6
     bnez t0, fail               /* a correctly serviced watchdog must be quiet */
 
-    /* ---- 6: watchdog times out when it is not serviced -------------- */
+    /* ---- 7: watchdog times out when it is not serviced -------------- */
     li   t0, 200
     sw   t0, WD_PERIOD(s5)      /* short period, restarts the counter */
 
     li   s4, 0
-8:  addi s4, s4, 1
+10: addi s4, s4, 1
     li   t1, 4000
-    blt  s4, t1, 8b
+    blt  s4, t1, 10b
 
     lw   t0, 0(s0)
     srli t0, t0, 6
     andi t0, t0, 1
-    li   a0, 6
+    li   a0, 7
     beqz t0, fail               /* it should have fired by now */
 
     sw   zero, WD_CTRL(s5)      /* disable it again */
     li   t0, -1
     sw   t0, 0(s0)
 
-    /* ---- 7: memory BIST over the D-TCM ------------------------------
+    /* ---- 8: memory BIST over the D-TCM ------------------------------
      * Destructive, and it blocks the D-TCM while it runs -- but this
      * loop only touches peripherals and the I-TCM, so the core keeps
      * running.  Nothing below uses the D-TCM.
@@ -223,28 +270,28 @@ _start:
     sw   t0, MB_D_CTRL(s6)      /* start */
 
     li   s4, 0
-9:  lw   t0, MB_D_STATUS(s6)
+11: lw   t0, MB_D_STATUS(s6)
     andi t1, t0, 2              /* done */
-    bnez t1, 10f
+    bnez t1, 12f
     addi s4, s4, 1
     li   t1, 200000
-    blt  s4, t1, 9b
-    li   a0, 7
-    j    fail                   /* BIST never finished */
-10:
-    andi t1, t0, 4              /* fail */
+    blt  s4, t1, 11b
     li   a0, 8
+    j    fail                   /* BIST never finished */
+12:
+    andi t1, t0, 4              /* fail */
+    li   a0, 9
     bnez t1, fail               /* a good memory must not report a failure */
 
 pass:
     li   t0, EXIT_REG
     sw   zero, 0(t0)
-11: j    11b
+13: j    13b
 
 fail:
     li   t0, EXIT_REG
     sw   a0, 0(t0)
-12: j    12b
+14: j    14b
 
     /* ------------------------------------------------------------------
      * Trap handler.  Interrupts set a bit in s2 and silence their
@@ -271,23 +318,34 @@ irq_path:
     mret                        /* unexpected cause: ignore */
 
 irq_timer:
-    li   t4, TIMER_BASE
+    li   t4, CLINT_CMP
     li   t3, -1
-    sw   t3, MTIMECMP_LO(t4)
-    sw   t3, MTIMECMP_HI(t4)
+    sw   t3, 4(t4)              /* hi first: never transiently below mtime */
+    sw   t3, 0(t4)
     ori  s2, s2, 1
     mret
 
-irq_ext:
+irq_ext:                        /* one cause, two owners: ask CLAIM which */
+    li   t4, IRQC_BASE
+    lw   t3, IRQC_CLAIM(t4)
+    li   t5, 16
+    beq  t3, t5, irq_ext_tmr
     li   t4, SAFETY_BASE
     li   t3, -1
     sw   t3, 0(t4)              /* clear the sticky status, drops the irq */
     ori  s2, s2, 2
     mret
+irq_ext_tmr:
+    li   t4, TIMER_BASE
+    li   t3, -1
+    sw   t3, MTIMECMP_LO(t4)
+    sw   t3, MTIMECMP_HI(t4)    /* level source: move the compare away */
+    ori  s2, s2, 8
+    mret
 
 irq_soft:
-    li   t4, IRQC_BASE
-    sw   zero, IRQC_MSIP(t4)
+    li   t4, CLINT_MSIP
+    sw   zero, 0(t4)            /* msip lives in the CLINT now */
     ori  s2, s2, 4
     mret
 

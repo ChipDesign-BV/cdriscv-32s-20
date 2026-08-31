@@ -1,5 +1,5 @@
 {
-  "//": "cdriscv-32s-10 -- LibreLane 3 RTL2GDS flow (findings V45).",
+  "//": "cdriscv-32s-20 -- LibreLane 3 RTL2GDS flow, variant 2's own floorplan.",
   "//tcm": "The TCM storage uses the same macro-backed wrapper as the timing flow (verif/gate/cdriscv_32s_20_tcm_macro.sv): two RM_IHPSG13_1P_2048x64 banks per TCM, so the arrays are silicon macros, not 320 kbit of flip-flops.",
   "DESIGN_NAME": "cdriscv_32s_20_subsys_hard",
   "PDK": "ihp-sg13g2",
@@ -32,8 +32,6 @@
     "dir::../rtl/periph/cdriscv_32s_20_timer.sv",
     "dir::../rtl/periph/cdriscv_32s_20_irq_ctrl.sv",
     "dir::../rtl/periph/cdriscv_32s_20_ams_if.sv",
-    "dir::../rtl/periph/cdriscv_32s_20_clint.sv",
-    "dir::../rtl/periph/cdriscv_32s_20_clint_obi.sv",
     "dir::../rtl/debug/cdriscv_32s_20_jtag_tap.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_bridge.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_win.sv",
@@ -45,7 +43,7 @@
   "CLOCK_PERIOD": 40,
   "FALLBACK_SDC": "dir::cdriscv_32s_20.sdc",
   "//sdc": "LibreLane's base.sdc constrains only the first clock and says so. This design has three (clk_i, ref_clk_i, tck_i); in the v2first run the other two were signed off with no constraint at all and ref_clk_i's 107 flops got a fanout-repair buffer chain instead of a CTS tree. flow/cdriscv_32s_20.sdc constrains all three and declares them asynchronous.",
-  "PL_TARGET_DENSITY_PCT": 58,
+  "PL_TARGET_DENSITY_PCT": 55,
   "MACROS": {
     "RM_IHPSG13_1P_2048x32_c2_bm_bist": {
       "gds": [
@@ -62,29 +60,29 @@
       "instances": {
         "u_sub.u_itcm.g_bank[0].u_bank": {
           "location": [
-            380,
-            45
+            144,
+            40
           ],
-          "orientation": "N"
+          "orientation": "FS"
         },
         "u_sub.u_itcm.g_bank[1].u_bank": {
           "location": [
-            810,
-            45
+            601,
+            40
           ],
-          "orientation": "N"
+          "orientation": "FS"
         },
         "u_sub.u_dtcm.g_bank[0].u_bank": {
           "location": [
-            380,
-            1200
+            144,
+            1854
           ],
           "orientation": "N"
         },
         "u_sub.u_dtcm.g_bank[1].u_bank": {
           "location": [
-            810,
-            1200
+            601,
+            1854
           ],
           "orientation": "N"
         }
@@ -105,15 +103,15 @@
       "instances": {
         "u_sub.u_itcm.u_par": {
           "location": [
-            1240,
-            45
+            1058,
+            40
           ],
-          "orientation": "N"
+          "orientation": "FS"
         },
         "u_sub.u_dtcm.u_par": {
           "location": [
-            1240,
-            1200
+            1058,
+            1854
           ],
           "orientation": "N"
         }
@@ -134,19 +132,19 @@
   "DIE_AREA": [
     0,
     0,
-    1900,
-    1900
+    1440,
+    2521
   ],
   "CORE_AREA": [
     10,
     10,
-    1890,
-    1890
+    1430,
+    2511
   ],
   "FP_PDN_ENABLE_MACROS_GRID": true,
   "//clock": "40 ns = 25 MHz.  Chosen after the first full RTL2GDS run: the design met 20 ns at the typical corner but missed it by 9 ns at slow (1.08 V, 125 C), which is the corner a safety IP must sign off against (finding V45).",
   "RUN_MAGIC_DRC": false,
-  "RUN_KLAYOUT_DRC": true,
+  "RUN_KLAYOUT_DRC": false,
   "KLAYOUT_DRC_THREADS": 8,
   "//drc": "KLayout DRC rather than Magic: Magic's DRC is single-threaded and spent over three hours on one core of eight without finishing, while the IHP PDK ships its own KLayout deck (KLAYOUT_DRC_RUNSET in the PDK config) which threads and is the vendor's signoff deck for this process.",
   "LVS_IGNORE_CELLS": [
@@ -159,5 +157,13 @@
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.15,
   "//floorplan": "Memories in two rows (I-TCM south, D-TCM north) with the logic in the central band, rather than the four corners of a 2.9 mm die.  The corner placement put every macro ~2 mm from the logic, the clock tree spanned that distance, and 69 of 71 hold-critical endpoints were macro pins with 0.45 ns of skew (V45).  This also takes the die from 8.41 to 5.76 mm^2.",
   "GRT_RESIZER_HOLD_MAX_BUFFER_PCT": 75,
-  "GRT_RESIZER_FIX_HOLD_FIRST": true
+  "GRT_RESIZER_FIX_HOLD_FIRST": true,
+  "//experiment": "Timing-only probe, NOT a signoff config.  It answers one question: does the fetch-stage critical path lose its 719 ps when the max-fanout repair buffers stop being minimum strength?  Signoff steps that cost 8 of the 11.5 hours and cannot change setup timing are turned off, so the answer comes back in a few hours instead of overnight.  A passing result here means RE-RUN config.json in full -- it does not itself sign anything off.",
+  "SYNTH_BUFFER_CELL": "sg13g2_buf_4/A/X",
+  "PL_RESIZER_SETUP_SLACK_MARGIN": 0.3,
+  "GRT_RESIZER_SETUP_SLACK_MARGIN": 0.3,
+  "RUN_LVS": false,
+  "RUN_KLAYOUT_XOR": false,
+  "RUN_IRDROP_REPORT": false,
+  "RUN_CVC": false
 }

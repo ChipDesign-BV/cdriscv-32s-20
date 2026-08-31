@@ -23,6 +23,7 @@
 | Range | Size | Contents |
 |-------|------|----------|
 | `0x0000_0000` | `ItcmWords * 4` | I-TCM (instruction fetch and data) |
+| `0x0200_0000` | 64 KiB | CLINT — standard RISC-V map, data accesses only, **word accesses only** (a sub-word access returns a bus error rather than being widened; a byte write into a 64-bit counter has no defined meaning) |
 | `0x1000_0000` | `DtcmWords * 4` | D-TCM (data) |
 | `0x2000_0000` | 4 KiB | peripherals, sixteen 256-byte slots |
 | everything else | | unmapped, returns a bus error |
@@ -232,7 +233,43 @@ read or write of the containing word.
 | `0x10` | `MODE` | RW | 0 = level, 1 = rising edge |
 
 Source assignment: bit 0 is the safety controller interrupt, bit 1 the
-AMS interface interrupt, bits 15:2 are `irq_i[13:0]` from the SoC.
+AMS interface interrupt, bits 15:2 are `irq_i[13:0]` from the SoC, and
+bit 16 is the **APB machine timer** (slot 2). The timer's interrupt was
+re-routed here when the CLINT took ownership of MTIP; bits 0–15 keep the
+meaning software already had, which is why the new source appends at the
+top rather than renumbering anything.
+
+The MSIP register at `0x0c` still exists but **no longer reaches the
+core**: the machine software interrupt comes from the CLINT's `msip`
+(§9a). Writing it changes a register nothing consumes.
+
+## 9a. CLINT (`0x0200_0000`)
+
+The architectural machine timer and software interrupt, decoding the
+standard RISC-V CLINT map — which is the reason it lives on the main bus
+in a 64 KB window rather than in a 256-byte APB slot (`mtime` sits at
+`+0xBFF8`, unreachable through a 12-bit APB address).
+
+| Offset | Name | Access | Description |
+|--------|------|--------|-------------|
+| `0x0000` | `MSIP` | RW | [0] machine software interrupt — drives MSIP directly |
+| `0x4000` | `MTIMECMP` | RW | timer compare, low word |
+| `0x4004` | `MTIMECMPH` | RW | timer compare, high word |
+| `0x8000` | `PRESC` | RW | prescaler (non-standard extension; resets to 0 = one tick per clock) |
+| `0xBFF8` | `MTIME` | RW | timer counter, low word — free-runs from reset |
+| `0xBFFC` | `MTIMEH` | RW | timer counter, high word |
+
+MTIP is level: asserted while `mtime ≥ mtimecmp`. Because `mtime`
+free-runs from reset, arm the comparator **relative to a read of
+`mtime`**, and write the halves high-first so the 64-bit compare value
+never passes through a smaller intermediate state while the counter is
+running. Any other offset in the window returns a bus error, as does any
+sub-word access.
+
+The APB timer at peripheral slot 2 keeps all its registers and its
+config-parity protection; only its interrupt routing changed (source 16,
+§9). Its config-parity error reports as `CFGSRC` bit 7 in the safety
+controller alongside the six existing sources — none of which moved.
 
 ## 10. JTAG observation window
 

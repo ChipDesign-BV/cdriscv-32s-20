@@ -28,9 +28,9 @@
 // it would cost ~8 points of LFM, because it is what took latent faults
 // in the peripheral configuration from 46.4 % to zero.
 //
-// STATUS: block-verified but NOT instantiated by the subsystem.
-// What stops it is integration ripple, not the block -- see
-// doc/variant_status.md, section 3.  NOT qualified for safety-critical use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem.  No signoff gate is met in this
+// repository -- see README.md.  NOT qualified for safety-critical use.
 
 `default_nettype none
 

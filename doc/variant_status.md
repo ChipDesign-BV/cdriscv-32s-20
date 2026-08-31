@@ -35,7 +35,8 @@ table:
 | `jtag_tap` | IEEE 1149.1 TAP, no riscv-dbg dependency | yes |
 | `dbg_bridge` | tck ↔ system handshake for the TAP's debug bus | yes |
 | `dbg_win` | read-only observation window the TAP reaches | yes |
-| `clint` | standard timer / software interrupt controller | **no** |
+| `clint` | standard timer / software interrupt controller | yes, on the main bus |
+| `clint_obi` | req/gnt/rvalid adapter for the CLINT (rejects sub-word) | yes |
 | `e2e` | end-to-end bus payload protection | **no** |
 
 ---
@@ -186,30 +187,38 @@ Largest first.
    `EXC_*_FAULT` causes. A software access violation therefore sets the
    same sticky status bit as a real memory fault. Distinguishing them
    would need a separate event source.
-6. **CLINT and E2E are not instantiated** by the subsystem. The
-   existing `timer` and `irq_ctrl` still serve it. Both are written and
-   block-verified; what stops each is integration ripple rather than the
-   block:
+6. **The CLINT is instantiated; E2E is not.**
 
-   * **CLINT needs a window on the main bus, not an APB slot.** It
-     decodes the *standard* RISC-V CLINT map — `msip` at offset 0x0000,
-     `mtimecmp` at 0x4000, `mtime` at **0xBFF8** — which spans 48 KB.
-     The APB decode carries a 12-bit `paddr`, so a peripheral slot can
-     address 4 KB and cannot reach `mtime` at all. Remapping the offsets
-     to fit would make it a non-standard CLINT, which defeats the point
-     of having one: software expects those addresses. The work is a
-     bus-decode change giving it a 64 KB window alongside the TCMs.
+   The CLINT owns MTIP and MSIP now. It sits on the **main bus** at
+   `0x0200_0000` in a 64 KB window — the standard map puts `mtime` at
+   `+0xBFF8`, which a 256-byte APB slot's 12-bit address cannot reach,
+   and remapping the offsets would make it a non-standard CLINT, which
+   defeats the point of having one. A small adapter (`clint_obi`) joins
+   its combinational slave interface to the bus protocol and **rejects
+   sub-word accesses** rather than widening them: a byte write into a
+   64-bit counter has no defined meaning, and performing it as a word
+   write would corrupt the other three bytes.
 
-     Two smaller things were checked and are *not* obstacles. An
-     APB-to-simple-slave bridge is four lines — the CLINT answers
-     combinationally and APB's access phase is one cycle. And its
-     `cfg_err_o` fits the safety controller cleanly: `cfg_src` is
-     `{cfg_err_i, cfg_err_own}` with `cfg_err_own` at bit 0, so a
-     seventh source appends at bit 7 and **no existing bit moves** —
-     software reading `CFGSRC` keeps its bit numbering. An earlier note
-     here claimed that widening would shift the layout; it was written
-     without checking and is wrong.
-   * **E2E** inserts a generator and a checker into the bus datapath.
+   The APB timer at slot 2 keeps its registers and its config parity;
+   only its interrupt moved — it is now **source 16** of the interrupt
+   controller, appended so that sources 0–15 keep the meaning software
+   already had. The CLINT's config-parity error appends the same way, at
+   bit 7 of the safety controller's `CFGSRC`. The irq_ctrl's own MSIP
+   register still exists but no longer reaches the core.
+
+   `periph_test` was rewritten to the new architecture and now proves
+   both routes: MTIP from the CLINT (including the hi-then-lo comparator
+   write order that keeps the 64-bit compare value from passing through
+   a smaller intermediate state while `mtime` runs), the WFI wake, MSIP
+   from the CLINT's `msip`, **and** the APB timer arriving as the
+   external interrupt through source 16. Full regression green after the
+   change (12 targets).
+
+   **E2E remains the open one**: it inserts a generator and a checker
+   into the bus datapath. (The CLINT analysis that used to sit here —
+   the 64 KB-window argument and the append-at-bit-7 check — is now the
+   implementation described above, so the prediction has been replaced
+   by the result.)
 
    **The JTAG TAP is now instantiated**, with six pins on the subsystem
    (`tck_i`, `tms_i`, `tdi_i`, `trst_ni`, `tdo_o`, `tdo_oe_o`). What it
@@ -323,7 +332,18 @@ Largest first.
    `ref_clk_i` domain was unconstrained, so it is a comparison point and
    not a fallback.
 
-9. **Coverage, fault injection and the FMEDA have not been re-run.**
+9. **Coverage now has a first variant-2 baseline; fault injection and
+   the FMEDA have not been re-run.** `make coverage` (2026-08-31, on the
+   pre-CLINT revision): RTL line **80.0 %** (443 of 554), toggle
+   **87.8 %**, functional **100 %** — with three caveats that keep this
+   a baseline rather than a result. The debug blocks (`jtag_tap`,
+   `dbg_bridge`, `dbg_win`) and `pmp` read at or near 0 % because the
+   coverage build does not include their benches and the system tests
+   leave PMP at its all-regions-off reset. And the functional-coverage
+   model predates JTAG, PMP and the C extension, so its 100 % is 100 %
+   of an out-of-date model — worth less than the number suggests. The
+   whole set re-runs on stable RTL once the implementation phase
+   (E2E, Zcmp, PMP-on-fetch) closes.
 
 ---
 

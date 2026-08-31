@@ -40,6 +40,7 @@ module cdriscv_32s_20_subsys
     parameter logic [31:0] ItcmBase    = 32'h0000_0000,
     parameter logic [31:0] DtcmBase    = 32'h1000_0000,
     parameter logic [31:0] PeriphBase  = 32'h2000_0000,
+    parameter logic [31:0] ClintBase   = 32'h0200_0000,
     parameter logic [31:0] HartId      = 32'h0000_0000,
     parameter int unsigned WarmRstLen  = 16
 )(
@@ -279,13 +280,31 @@ module cdriscv_32s_20_subsys
 
   logic        f_bus_err_xbar;
 
+  // ---- CLINT: the architectural machine timer and software interrupt --
+  //
+  // On the main bus, not an APB slot: it decodes the standard RISC-V map
+  // with mtime at +0xBFF8, which spans 48 KB, and a 12-bit APB paddr
+  // reaches 4 KB.  Remapping the offsets to fit would make it a
+  // non-standard CLINT, which defeats the point of having one.
+  logic        clint_req, clint_gnt, clint_rvalid, clint_we, clint_err;
+  logic [3:0]  clint_be;
+  logic [15:0] clint_addr;
+  logic [31:0] clint_wdata, clint_rdata;
+  logic        clint_creq, clint_cwe;
+  logic [15:0] clint_caddr;
+  logic [31:0] clint_cwdata, clint_crdata;
+  logic        clint_cerr, clint_cfg_err;
+  logic        timer_irq, irqc_soft_unused;
+
   cdriscv_32s_20_bus #(
       .ItcmBase   (ItcmBase),
       .ItcmBytes  (ItcmBytes),
       .DtcmBase   (DtcmBase),
       .DtcmBytes  (DtcmBytes),
       .PeriphBase (PeriphBase),
-      .PeriphBytes(PeriphBytes)
+      .PeriphBytes(PeriphBytes),
+      .ClintBase  (ClintBase),
+      .ClintBytes (65536)
   ) u_bus (
       .clk_i           (clk_i),
       .rst_ni          (core_rst_n),
@@ -331,6 +350,15 @@ module cdriscv_32s_20_subsys
       .periph_wdata_o  (periph_wdata),
       .periph_rdata_i  (periph_rdata),
       .periph_err_i    (periph_err),
+      .clint_req_o     (clint_req),
+      .clint_gnt_i     (clint_gnt),
+      .clint_rvalid_i  (clint_rvalid),
+      .clint_we_o      (clint_we),
+      .clint_be_o      (clint_be),
+      .clint_addr_o    (clint_addr),
+      .clint_wdata_o   (clint_wdata),
+      .clint_rdata_i   (clint_rdata),
+      .clint_err_i     (clint_err),
       .fault_bus_err_o (f_bus_err_xbar)
   );
 
@@ -459,7 +487,7 @@ module cdriscv_32s_20_subsys
       .pslverr_o      (sfty_pslverr),
       .fault_int_i    (fault_int),
       .fault_ext_i    (fault_ext_i),
-      .cfg_err_i      ({f_cfg_par, ams_cfg_err, timer_cfg_err,
+      .cfg_err_i      ({clint_cfg_err, f_cfg_par, ams_cfg_err, timer_cfg_err,
                         irqc_cfg_err, clkm_cfg_err, wdog_cfg_err}),
       .irq_o          (sfty_irq),
       .reset_req_o    (sfty_reset_req),
@@ -506,7 +534,7 @@ module cdriscv_32s_20_subsys
       .prdata_o  (tmr_prdata),
       .pready_o  (tmr_pready),
       .pslverr_o (tmr_pslverr),
-      .irq_o     (irq_timer),
+      .irq_o     (timer_irq),
       .cfg_err_o (timer_cfg_err)
   );
 
@@ -624,12 +652,17 @@ module cdriscv_32s_20_subsys
   // ---- slot 6: interrupt controller ----
   logic [31:0] irqc_prdata;
   logic        irqc_pready, irqc_pslverr;
-  logic [15:0] irq_src;
+  // The APB timer at slot 2 is no longer the architectural machine
+  // timer -- the CLINT is -- so its interrupt arrives here as an
+  // ordinary peripheral source.  It appends at bit 16: bits 0..15 keep
+  // the meaning software already has, exactly as a seventh cfg_err
+  // source appends at bit 7 without moving the six below it.
+  logic [16:0] irq_src;
 
-  assign irq_src = {irq_i, ams_irq, sfty_irq};
+  assign irq_src = {timer_irq, irq_i, ams_irq, sfty_irq};
 
   cdriscv_32s_20_irq_ctrl #(
-      .NumSrc (16)
+      .NumSrc (17)
   ) u_irq_ctrl (
       .clk_i      (clk_i),
       .rst_ni     (rst_n_sync),
@@ -643,7 +676,7 @@ module cdriscv_32s_20_subsys
       .pslverr_o  (irqc_pslverr),
       .src_i      (irq_src),
       .irq_ext_o  (irq_ext),
-      .irq_soft_o (irq_soft),
+      .irq_soft_o (irqc_soft_unused),
       .cfg_err_o  (irqc_cfg_err)
   );
 
@@ -703,6 +736,40 @@ module cdriscv_32s_20_subsys
   end
 
   assign reset_req = sfty_reset_req || wdog_reset_req;
+
+  cdriscv_32s_20_clint_obi u_clint_obi (
+      .clk_i         (clk_i),
+      .rst_ni        (core_rst_n),
+      .req_i         (clint_req),
+      .gnt_o         (clint_gnt),
+      .rvalid_o      (clint_rvalid),
+      .we_i          (clint_we),
+      .be_i          (clint_be),
+      .addr_i        (clint_addr),
+      .wdata_i       (clint_wdata),
+      .rdata_o       (clint_rdata),
+      .err_o         (clint_err),
+      .clint_req_o   (clint_creq),
+      .clint_we_o    (clint_cwe),
+      .clint_addr_o  (clint_caddr),
+      .clint_wdata_o (clint_cwdata),
+      .clint_rdata_i (clint_crdata),
+      .clint_err_i   (clint_cerr)
+  );
+
+  cdriscv_32s_20_clint u_clint (
+      .clk_i       (clk_i),
+      .rst_ni      (core_rst_n),
+      .req_i       (clint_creq),
+      .we_i        (clint_cwe),
+      .addr_i      (clint_caddr),
+      .wdata_i     (clint_cwdata),
+      .rdata_o     (clint_crdata),
+      .err_o       (clint_cerr),
+      .irq_timer_o (irq_timer),
+      .irq_soft_o  (irq_soft),
+      .cfg_err_o   (clint_cfg_err)
+  );
 
   // ---- JTAG TAP and its observation window ------------------------
   //
@@ -780,6 +847,6 @@ module cdriscv_32s_20_subsys
   );
 
   logic unused_sigs;
-  assign unused_sigs = |{f_out_en, pstrb, dbg_busy};
+  assign unused_sigs = |{f_out_en, pstrb, dbg_busy, irqc_soft_unused};
 
 endmodule

@@ -37,6 +37,7 @@ rtl/core/cdriscv_32s_20_mult.sv
 rtl/core/cdriscv_32s_20_decompress.sv
 rtl/core/cdriscv_32s_20_if_align.sv
 rtl/periph/cdriscv_32s_20_clint.sv
+rtl/periph/cdriscv_32s_20_clint_obi.sv
 rtl/safety/cdriscv_32s_20_e2e.sv
 rtl/debug/cdriscv_32s_20_jtag_tap.sv
 rtl/debug/cdriscv_32s_20_dbg_bridge.sv

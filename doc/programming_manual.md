@@ -254,12 +254,37 @@ fault. Configure `PERIOD` and `WINDOW`, then set `CTRL.lock`.
 from an interrupt handler defeats the purpose — the loop can be dead
 while the timer interrupt still runs.
 
-### 5.3 Machine timer (slot 2)
+### 5.2a CLINT (`0x0200_0000`) — the machine timer and software interrupt
 
-64-bit `mtime` with a prescaler, and `mtimecmp`; `mtime >= mtimecmp`
-raises the machine timer interrupt. Write the high word first when
-setting a new deadline to avoid a spurious match. `mtimecmp` is
-parity-protected (§5.1).
+MTIP and MSIP come from here. It decodes the standard RISC-V map —
+`msip` at `+0x0000`, `mtimecmp` at `+0x4000/0x4004`, `mtime` at
+`+0xBFF8/0xBFFC`, plus a non-standard prescaler at `+0x8000` — so code
+written for any standard CLINT works unchanged.
+
+Three rules, each of which has already cost a debug session somewhere:
+
+* **Word accesses only.** A sub-word access returns a bus error rather
+  than being silently widened — a byte write into a 64-bit counter has
+  no defined meaning.
+* **`mtime` free-runs from reset** (prescaler resets to 0 = one tick per
+  clock), so set deadlines *relative to a read of `mtime`*, never as
+  absolute small numbers.
+* **Write `mtimecmp` high word first.** MTIP is level (`mtime >=
+  mtimecmp`); hi-then-lo keeps the 64-bit compare value from passing
+  through a smaller intermediate state while the counter runs.
+
+### 5.3 APB timer (slot 2)
+
+64-bit `mtime` with a prescaler, and `mtimecmp`; write the high word
+first when setting a new deadline. `mtimecmp` is parity-protected
+(§5.1).
+
+This is **no longer the machine timer**: since the CLINT took MTIP, its
+interrupt arrives as interrupt-controller **source 16** (§5.7) and is
+taken as the *external* interrupt (`mie.MEIE`, cause `0x8000000B`),
+claimed and dispatched like any other peripheral source. Its registers
+and behaviour are otherwise unchanged, which is what keeps existing
+register-level software working.
 
 ### 5.4 Clock monitor (slot 3)
 
@@ -291,8 +316,13 @@ claim 16 bytes, and offsets belonging to neither raise a bus error.
 sticky-for-edge `PENDING`, and a `CLAIM` register giving the
 lowest-numbered active source. Level sources follow their input; edge
 sources stay set until written back to `PENDING`. `ENABLE` and `MODE`
-are parity-protected. There is also a software interrupt doorbell
-(`MSIP`).
+are parity-protected.
+
+Source 16 is the APB timer (§5.3). The `MSIP` doorbell register still
+exists but **no longer reaches the core** — the machine software
+interrupt is the CLINT's `msip` (§5.2a). Writing the doorbell changes a
+register nothing consumes; it is kept only so the register map does not
+shift.
 
 ## 6. Core-local safety CSRs
 

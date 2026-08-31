@@ -32,6 +32,8 @@
     "dir::../rtl/periph/cdriscv_32s_20_timer.sv",
     "dir::../rtl/periph/cdriscv_32s_20_irq_ctrl.sv",
     "dir::../rtl/periph/cdriscv_32s_20_ams_if.sv",
+    "dir::../rtl/periph/cdriscv_32s_20_clint.sv",
+    "dir::../rtl/periph/cdriscv_32s_20_clint_obi.sv",
     "dir::../rtl/debug/cdriscv_32s_20_jtag_tap.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_bridge.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_win.sv",
