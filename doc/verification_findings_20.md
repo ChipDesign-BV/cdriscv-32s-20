@@ -530,3 +530,76 @@ and turning the debug port into a fault-injection path the FMEDA would
 have to account for and the product would have to disable in the field.
 That argument is not made here, so the window is read-only **by
 construction**, not by configuration.
+
+## 15. The critical path was never where the note said it was
+
+`variant_status.md` had carried a prediction for months: the
+single-cycle multiplier puts a combinational 33×33 array on the
+writeback path, `v2first` closed 40 ns with only +1.393 ns to spare, so
+if the re-harden missed timing the multiplier would be the first thing
+to remove.
+
+The re-harden missed timing — **−0.719 ns at the slow corner, TNS
+−8.713 ns over 46 endpoints** — and the multiplier is on **none** of
+those 46 paths. Every one of them starts in `u_core_main.u_if`.
+
+Worse for the original theory: `v2first`'s own worst path started at the
+*same net*, `u_if.rd_ptr_rdata_q`, the instruction buffer's read
+pointer. The fetch stage was the critical path before the multiplier
+existed. Adding Zca/Zcb's realignment deepened a path that was already
+the limiting one, and the +1.393 ns that looked like margin for the
+multiplier was really margin on a fetch path about to get longer.
+
+| | `v2first` | `v2full` |
+|---|---|---|
+| worst-path start | `u_if.rd_ptr_rdata_q` | `u_if.rd_ptr_rdata_q` |
+| cells on the path | 70 | 82 |
+| of which max-fanout repair buffers | 22 | 32 |
+| setup slack, slow corner | +1.393 ns | −0.719 ns |
+
+**The mechanism was plausible and the conclusion was still wrong.** A
+combinational multiplier on the writeback path really is the kind of
+thing that eats a nanosecond, the margin really was thin, and the two
+facts sat next to each other for long enough to look like cause and
+effect. Nothing had checked *which endpoints* were critical — that
+takes one report and was never run. This is the same shape as the
+`npn13G2v` `le`/`we` transposition in the analog tree: **a wrong
+attribution does not announce itself as one, it arrives dressed as a
+plausible physical effect.**
+
+The second thing the report says is about buffering rather than logic.
+32 of the 82 cells on the critical path are `sg13g2_buf_1` — the weakest
+buffer in the library — inserted by max-fanout repair, several
+contributing 0.45–0.59 ns apiece at 0.37–0.66 ns slew. `SYNTH_BUFFER_CELL`
+is `sg13g2_buf_1` and `MAX_FANOUT_CONSTRAINT` is 10, so a high-fanout
+net in the fetch stage gets a chain of minimum-strength buffers which
+the resizer does not fully undo afterwards.
+
+That is an observation, **not** a second confident diagnosis — which is
+the point of this entry. Whether restyling the buffering recovers 719 ps
+is an experiment. It is worth running first only because it is a
+configuration change with no RTL risk, not because the reasoning behind
+it is any stronger than the reasoning that produced the multiplier
+theory.
+
+### What the same run confirms
+
+The clock constraints from §13 did what they were written to do. Every
+flip-flop in the design is now on a clock tree:
+
+| domain | flops on a CTS tree |
+|---|---|
+| `clk_i` | 6457 |
+| `ref_clk_i` | **107** — in `v2first` these had no tree and no timing check |
+| `tck_i` | **190** — new |
+
+and **none** on a raw or fanout-repair net. That is worth stating
+plainly next to a timing failure: the run failed on a real number, and
+it is the first run in this repository where every sequential element
+was actually being checked.
+
+Everything else passed on the complete RTL — routing DRC 0, antenna 0,
+KLayout DRC 0, GDS XOR 0, illegal overlap clear, hold clean at every
+corner, and LVS **matching uniquely** across 153 626 devices and 79 499
+nets. The design is physically implementable at this die size; what it
+is not, yet, is timing-closed at 25 MHz across PVT.

@@ -231,59 +231,97 @@ Largest first.
      the product would have to disable in the field. That argument is
      not made, so the window is read-only by construction rather than by
      configuration.
-7. **The single-cycle multiplier is in the core.** The two paths are
-   split on `md_op[2]`, which separates the four multiplies from the four
-   divides — one reason the operator encoding is kept identical to
-   funct3. A multiply no longer visits `ST_WAIT_MD` at all; only a divide
-   stalls the pipeline. Measured: the smoke program fell from 348 to 315
-   cycles and the trap test from 596 to 563, both exactly 33 cycles,
-   which is the sequential unit's own constant latency, and both contain
-   one multiply. The cost is a combinational 33×33 multiplier on the
-   writeback path; whether the 40 ns period absorbs it is a question for
-   the next hardening run, not for simulation.
-8. **A first hardening run is complete, and it does not describe the
-   current RTL.** It was launched before Zca/Zcb and the single-cycle
-   multiplier went in, so its netlist is the bitmanip-core-only design.
-   On a 1440 × 2521 µm die (3.630 mm²) sized from variant 2's own
-   synthesis, every signoff gate passed:
+7. **The single-cycle multiplier is in the core, and it is not the
+   timing problem.** The two paths are split on `md_op[2]`, which
+   separates the four multiplies from the four divides — one reason the
+   operator encoding is kept identical to funct3. A multiply no longer
+   visits `ST_WAIT_MD` at all; only a divide stalls the pipeline.
+   Measured: the smoke program fell from 348 to 315 cycles and the trap
+   test from 596 to 563, both exactly 33 cycles, which is the sequential
+   unit's own constant latency, and both contain one multiply.
+
+   This entry used to say the combinational 33×33 multiplier on the
+   writeback path was the thing to watch, and that if 25 MHz failed to
+   close it should be the first candidate for removal. **The hardening
+   run says otherwise**: all 46 setup-violating paths start in the fetch
+   stage and the multiplier is on none of them (item 8). Removing it
+   would cost performance and recover nothing.
+8. **The re-harden with the complete RTL is done. Everything physical
+   passes; setup timing at the slow corner does not.**
+
+   `v2full` — Zca/Zcb in the fetch path, the single-cycle multiplier, the
+   JTAG TAP with its bridge and window, and all three clocks constrained
+   for the first time. Same die as `v2first`: 1440 × 2521 µm (3.630 mm²)
+   at 40 ns. 11 h 30 m end to end (routing 2:51, netgen LVS 6:51).
 
    | Gate | Result |
    |---|---|
    | Detailed routing | **0 DRC violations** |
-   | Antenna, post-route | **0 nets, 0 pins** |
+   | Antenna, post-route | **0 violations** |
    | KLayout signoff DRC | **0 errors** |
    | Magic illegal overlap | clear |
-   | **LVS** (netgen) | **circuits match uniquely** — 113 797 devices, 57 634 nets |
-   | Setup, slow 1.08 V/125 °C | **+1.393 ns**, TNS 0, 0 violating paths |
-   | Hold, fast 1.32 V/−40 °C | **+0.140 ns**, TNS 0 |
-   | Setup, typ / fast | +12.86 / +19.46 ns |
+   | GDS XOR | **0 differences** |
+   | **LVS** (netgen) | **circuits match uniquely** — 153 626 devices, 79 499 nets, zero unmatched |
+   | Hold, fast 1.32 V/−40 °C | **+0.145 ns**, TNS 0, 0 violations |
+   | Hold, slow | +0.705 ns, 0 violations |
+   | Setup, typ 1.20 V/25 °C | +11.875 ns |
+   | Setup, fast 1.32 V/−40 °C | +18.898 ns |
+   | **Setup, slow 1.08 V/125 °C** | **−0.719 ns**, TNS −8.713 ns, **46 violating endpoints** |
 
-   113 793 standard cells of which **56 389 are antenna diodes**, plus
-   96 370 fill and the 6 SRAM macros. Against variant 1: +18.6 %
-   instances, +21 % diodes, +8.3 % die area.
+   231 920 instances — 153 622 standard cells of which **74 357 are
+   antenna diodes**, plus 78 292 fill and the 6 SRAM macros. Utilisation
+   0.803 overall, 0.685 standard cell (`v2first`: 0.709 / 0.533). The die
+   held: global placement came in at 47.7 % against a 55 % target.
 
-   **The timing number is the one to pay attention to.** Variant 1 closes
-   the same 40 ns period with +2.698 ns; this closes with +1.393 ns. The
-   bitmanip datapath costs **1.305 ns**, leaving about half the margin —
-   a 38.6 ns critical path, so a ceiling near 25.9 MHz against variant
-   1's 26.8 MHz.
+   **The multiplier is not the cause, and the fetch stage always was.**
+   All 46 violating paths start in `u_core_main.u_if`; none touches the
+   multiplier. `v2first`'s critical path started at the *same net* —
+   `u_if.rd_ptr_rdata_q`, the instruction buffer's read pointer — and
+   closed with +1.393 ns. Zca/Zcb's realignment deepened a path that was
+   already the limiting one:
 
-   **And this run does not contain the single-cycle multiplier.** A
-   combinational 33×33 multiplier sits on the writeback path, and there
-   is now a measured 1.393 ns of headroom for it to eat. Whether 25 MHz
-   still closes with it is an open question that only the re-harden
-   answers; if it does not, the multiplier is the first thing to
-   reconsider, because the divider it replaced was never the bottleneck
-   and the measured benefit was 33 cycles on programs containing one or
-   two multiplies.
+   | | `v2first` | `v2full` |
+   |---|---|---|
+   | worst-path start | `u_if.rd_ptr_rdata_q` | `u_if.rd_ptr_rdata_q` |
+   | cells on the path | 70 | 82 |
+   | of which max-fanout repair buffers | 22 | **32** |
+   | setup slack, slow | +1.393 ns | **−0.719 ns** |
 
-   Max-slew violations rose to 1098 at the slow corner (variant 1: 791).
-   The flow does not gate on these — see variant 1's V46/V48 — but the
-   direction is worth watching.
+   **32 of those 82 cells are `sg13g2_buf_1`** — the weakest buffer in
+   the library — inserted by max-fanout repair, several contributing
+   0.45–0.59 ns each at 0.37–0.66 ns slew. `SYNTH_BUFFER_CELL` is
+   `sg13g2_buf_1` and `MAX_FANOUT_CONSTRAINT` is 10, so a high-fanout net
+   in the fetch stage gets a chain of minimum-strength buffers that the
+   resizer then does not fully undo. That is a *buffering* observation,
+   not a proof: whether restyling it recovers 719 ps is an experiment.
+   It is the cheapest one to run, because it is a configuration change
+   with no RTL risk.
 
-   **A re-harden with the complete RTL is required** before any of this
-   describes the design, and it should follow the JTAG port change
-   rather than precede it.
+   Ordered candidates, cheapest first:
+
+   1. a stronger `SYNTH_BUFFER_CELL`, and/or a larger setup slack margin
+      for the resizer (`GRT_RESIZER_SETUP_SLACK_MARGIN` is 0.025);
+   2. restructure the fetch path in RTL — it was the critical path in
+      both runs, so this is the durable fix;
+   3. drop the clock to 20 MHz (50 ns), which closes by inspection and
+      costs a fifth of the throughput.
+
+   Removing the multiplier is **not** on that list: it is on none of the
+   violating paths.
+
+   Max-slew violations at the slow corner: 762 (`v2first`: 1098). The
+   flow does not gate on these.
+
+   **The clock constraints landed.** Every flip-flop in the design is now
+   on a clock tree — `clk_i` 6457, `ref_clk_i` 107, `tck_i` 190, and
+   **none** on a raw or fanout-repair net. In `v2first` those 107
+   `ref_clk_i` flops had no tree and no timing check at all (§13 of
+   [verification_findings_20.md](verification_findings_20.md)).
+
+   `v2first` is kept: it is the reference the timing comparison above is
+   against. It predates Zca/Zcb, the multiplier and the TAP, and its
+   `ref_clk_i` domain was unconstrained, so it is a comparison point and
+   not a fallback.
 
 9. **Coverage, fault injection and the FMEDA have not been re-run.**
 

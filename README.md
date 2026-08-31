@@ -37,7 +37,7 @@ describe different things.
 > | 10⁹-instruction co-simulation vs Spike | **re-run and met** — 1 015 480 871 instructions, zero mismatches |
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence bench below |
 > | coverage, fault injection, FMEDA | **not re-run** — all measured on variant 1's netlist |
-> | RTL2GDS: DRC, LVS, timing closure | **run and clean** — every gate passed on a 1440 × 2521 µm die, but on RTL that predates Zca/Zcb, the multiplier and the TAP; a re-harden with the complete design is what makes it describe this variant |
+> | RTL2GDS: DRC, LVS, timing closure | **run on the complete RTL** — DRC, antenna, XOR and LVS all clean, hold clean at every corner; **setup misses by 0.719 ns at the slow corner** and is not closed |
 >
 > What *has* been established in this repository, from runs in it:
 >
@@ -127,21 +127,31 @@ either detected by a mechanism that reports it, or bounded by one.
 
 ## Physical implementation (RTL2GDS)
 
-**Not run for this variant.** `flow/` is inherited from cdriscv-32s-10 and
-the configuration is carried over unchanged, but no die exists for
-cdriscv-32s-20 and none of variant 1's physical results describe it.
+**Run on the complete RTL, and not closed.** `flow/runs/v2full` hardens
+this variant — Zca/Zcb, the single-cycle multiplier and the JTAG TAP —
+on a 1440 × 2521 µm die (3.630 mm²) at 40 ns, in 11 h 30 m.
 
-That matters more than it looks: this variant's core carries a wider ALU
-operator, the bit-manipulation datapath and an instantiated PMP checker,
-so its area, congestion and critical path are all different from the
-numbers variant 1 measured. Variant 1's signed-off die is 1330 × 2521 µm
-at 25 MHz; **that figure is not a prediction for this design.**
+Everything physical passes: routing DRC 0, antenna 0, KLayout signoff
+DRC 0, GDS XOR 0, illegal overlap clear, and **LVS matches uniquely**
+across 153 626 devices and 79 499 nets. Hold is clean at every corner
+(+0.145 ns worst).
+
+**Setup is not closed**: −0.719 ns at slow 1.08 V/125 °C, TNS −8.713 ns
+over 46 endpoints. Typical and fast corners have 11.9 and 18.9 ns of
+margin, so this is a slow-corner problem specifically — which is the
+corner a safety part signs off against.
+
+All 46 violating paths start in the fetch stage. Variant 1's own
+critical path started at the *same net*, so the fetch path was the
+limiting one before the multiplier existed; the multiplier is on none of
+the violating paths. What to do about it is enumerated in
+[doc/variant_status.md](doc/variant_status.md) §3.8.
 
 ```sh
-cd flow && librelane --manual-pdk --pdk-root $PDK_ROOT config.json
+cd flow && ./run_v2.sh <run-tag>
 ```
 
-For variant 1's measured physical results, see
+For variant 1's signed-off physical results, see
 [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10).
 
 ## Documentation
@@ -183,11 +193,13 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | Co-simulation vs Spike | **O2 met** | 1 015 480 871 instructions, 27 000 programs, zero mismatches, against one frozen RTL revision — checked, not assumed |
 | Formal | **not re-run** | variant 1's decoder proof was of variant 1's decoder |
 | Coverage, fault injection, FMEDA | **not re-run** | all measured on variant 1's netlist |
-| Gate level, timing, RTL2GDS | **not run** | no physical implementation of this variant exists |
+| Physical implementation | **DRC / antenna / XOR / LVS clean** | `flow/runs/v2full` on the complete RTL: routing DRC 0, antenna 0, KLayout DRC 0, XOR 0, LVS matches uniquely (153 626 devices, 79 499 nets) |
+| Timing closure | **not met** | setup −0.719 ns at slow 1.08 V/125 °C, 46 endpoints, all in the fetch stage; hold clean everywhere. See [doc/variant_status.md](doc/variant_status.md) §3.8 |
 
 The honest summary is that this repository holds a design whose *blocks*
-are well verified and whose *integration* is verified only to the depth
-of a smoke test. The two equivalence benches are the strongest evidence
+are well verified, whose *integration* is verified only to the depth of
+a smoke test, and which is physically implementable but not yet timing
+closed. The two equivalence benches are the strongest evidence
 here, because they compare against an implementation that is already
 signed off rather than against a model written alongside the DUT.
 
