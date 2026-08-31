@@ -127,25 +127,41 @@ have signed off both.
 
 Largest first.
 
-1. **O2 is met.** 1 015 480 871 instructions over 27 000 randomly
-   generated programs in 54 batches, every batch 500/500, zero
-   mismatches on retire PC, instruction, register writes and memory
-   writes, with memory grants held off on 30 % of cycles.
+1. **O2 is met, on the current RTL.** 1 015 480 871 instructions over
+   27 000 randomly generated programs in 54 batches, every batch
+   500/500, zero mismatches on retire PC, instruction, register writes
+   and memory writes, with memory grants held off on 30 % of cycles —
+   re-run 2026-08-31 against revision `49079a3`, the revision that
+   closed the implementation phase (JTAG, CLINT, E2E, PMP on data and
+   fetch, Zcmp all in).
 
-   The campaign ran end to end against **one unchanging design**, and
-   that was checked rather than assumed: the co-simulation runner was
-   built at 00:17 from the current RTL, batch 0 started at 00:24, the
-   last batch finished at 06:32, and no commit touched `rtl/` or
-   `verif/core/` in between. The per-batch instruction counts sum
-   exactly to the reported cumulative.
+   The one-unchanging-design condition was checked against recorded
+   facts, not memory: the log header names the revision, the runner was
+   rebuilt from scratch at 16:13:32 UTC — 57 minutes after the last
+   commit touching `rtl/` or `verif/core/` — batch 0 started 16:21,
+   batch 53 finished 23:20, and the tree stayed clean throughout.
 
-   That check exists because the first attempt failed it. An earlier
-   campaign reached the same target — 1 015 491 890 instructions, also
-   with zero mismatches — but spanned the Zca/Zcb and multiplier
-   changes, so no single design had been run for 10⁹ instructions. It
-   was discarded and restarted; the log is kept as
-   `build/o2_marathon_prev_rtl.log`. See §10 of
-   [verification_findings_20.md](verification_findings_20.md).
+   **The total is identical to the previous campaign's, and that is
+   determinism, not a stale log.** The campaign runs a fixed seed
+   sequence (1000 + 500·k) through an unchanged generator, so the
+   27 000 programs — and therefore their retired-instruction counts —
+   are identical batch for batch (verified against the archived log,
+   `build/o2_marathon_completed_20260830.log`); what differs is the RTL
+   that executed them, which now includes the Zcmp sequencer and the
+   multi-write retirement comparison in the runner. Anyone auditing
+   this number should expect it to repeat exactly until the generator
+   or seed plan changes.
+
+   Two earlier campaigns are archived rather than deleted: the
+   2026-08-30 run (same result, pre-implementation-phase RTL) and the
+   first attempt, which reached 1 015 491 890 instructions but spanned
+   the Zca/Zcb and multiplier changes and therefore closed nothing —
+   §10 of [verification_findings_20.md](verification_findings_20.md).
+
+   Caveat carried honestly: the program generator emits no cm.*
+   instructions of its own, so the marathon exercises Zcmp only
+   lightly; the 312-sequence block bench and the directed test carry
+   that weight until the generator is extended.
 
    Comparable to variant 1's objective: 1 008 435 332 instructions over
    27 500 programs.
