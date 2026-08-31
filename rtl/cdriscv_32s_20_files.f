@@ -20,6 +20,8 @@ rtl/safety/cdriscv_32s_20_safety_ctrl.sv
 rtl/safety/cdriscv_32s_20_wdog.sv
 rtl/safety/cdriscv_32s_20_clkmon.sv
 rtl/safety/cdriscv_32s_20_mbist.sv
+rtl/safety/cdriscv_32s_20_e2e.sv
+rtl/safety/cdriscv_32s_20_e2e_link.sv
 rtl/bus/cdriscv_32s_20_tcm.sv
 rtl/bus/cdriscv_32s_20_bus.sv
 rtl/bus/cdriscv_32s_20_apb_bridge.sv
@@ -29,16 +31,15 @@ rtl/periph/cdriscv_32s_20_ams_if.sv
 rtl/cdriscv_32s_20_subsys.sv
 
 // ---------------------------------------------------------------------
-// Written and block-verified, NOT yet instantiated by the subsystem.
-// They are listed here so lint, elaboration and synthesis cover them;
-// see doc/variant_status.md for what each still needs.
+// Modules added by this variant (all instantiated by the subsystem
+// since the E2E links went in -- see doc/variant_status.md section 1
+// for what each one is).
 // ---------------------------------------------------------------------
 rtl/core/cdriscv_32s_20_mult.sv
 rtl/core/cdriscv_32s_20_decompress.sv
 rtl/core/cdriscv_32s_20_if_align.sv
 rtl/periph/cdriscv_32s_20_clint.sv
 rtl/periph/cdriscv_32s_20_clint_obi.sv
-rtl/safety/cdriscv_32s_20_e2e.sv
 rtl/debug/cdriscv_32s_20_jtag_tap.sv
 rtl/debug/cdriscv_32s_20_dbg_bridge.sv
 rtl/debug/cdriscv_32s_20_dbg_win.sv

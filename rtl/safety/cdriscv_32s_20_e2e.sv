@@ -24,9 +24,10 @@
 // Reuses the (39,32) Hsiao code the TCMs already use, so the same
 // generator, the same proof and the same block-level bench apply.
 //
-// STATUS: block-verified but NOT instantiated by the subsystem.
-// What stops it is integration ripple, not the block -- see
-// doc/variant_status.md, section 3.  NOT qualified for safety-critical use.
+// STATUS: block-verified (doc/variant_status.md, section 2) and
+// instantiated by the subsystem (via cdriscv_32s_20_e2e_link).  No signoff
+// gate is met in this repository -- see README.md.  NOT qualified for
+// safety-critical use.
 
 `default_nettype none
 

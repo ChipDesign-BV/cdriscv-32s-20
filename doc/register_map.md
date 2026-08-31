@@ -112,7 +112,7 @@ Fault bit assignment (`STATUS`, `ENABLE`, `REACT_*`, `RAW`):
 | 11 | software signalled fault (`msafectrl[1]`) |
 | 12 | unexpected core exception (illegal instruction) |
 | 13 | configuration register parity error (ungated -- see above) |
-| 14 | spare |
+| 14 | E2E bus protection: payload or address mismatch on a TCM link (took the former spare bit, so no existing bit moved) |
 | 15 | fault injection self test |
 | 16..31 | `fault_ext_i[15:0]` from the SoC |
 

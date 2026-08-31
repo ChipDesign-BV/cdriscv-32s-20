@@ -22,6 +22,10 @@ lint_off -rule DECLFILENAME -file "*cdriscv_32s_20_ecc_secded.sv"
 // both, so they are kept in one file for the same reason the ECC
 // encoder and decoder are.
 lint_off -rule DECLFILENAME -file "*cdriscv_32s_20_e2e.sv"
+// cdriscv_32s_20_e2e_link.sv holds the master- and slave-side link
+// endpoints: the same argument -- they implement the two ends of one
+// protocol and only make sense changed together.
+lint_off -rule DECLFILENAME -file "*cdriscv_32s_20_e2e_link.sv"
 
 // ---------------------------------------------------------------------
 // SYNCASYNCNET -- cdriscv_32s_20_rst_sync is the reset synchroniser itself:

@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb
 ABI        := ilp32
 
-.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-dbg block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -177,6 +177,16 @@ block-e2e: $(BUILD)/tb_e2e.vvp
 	$(VVP) $< | tee $(BUILD)/block_e2e.log
 	@grep -q "PASS" $(BUILD)/block_e2e.log
 
+# The link bench: the same generator/checker pair built into the two
+# endpoints the subsystem instantiates, attacked over corruptible wires.
+# Mutation-validated by scripts/mutate_e2e_link.py.
+$(BUILD)/tb_e2e_link.vvp: $(PKG) rtl/safety/cdriscv_32s_20_ecc_secded.sv rtl/safety/cdriscv_32s_20_e2e.sv rtl/safety/cdriscv_32s_20_e2e_link.sv verif/block/e2e_link/tb_e2e_link.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_e2e_link $^
+
+block-e2e-link: $(BUILD)/tb_e2e_link.vvp
+	$(VVP) $< | tee $(BUILD)/block_e2e_link.log
+	@grep -q "PASS" $(BUILD)/block_e2e_link.log
+
 $(BUILD)/tb_clint.vvp: $(PKG) rtl/common/cdriscv_32s_20_cfg_parity.sv rtl/periph/cdriscv_32s_20_clint.sv verif/block/clint/tb_clint.sv | $(BUILD)
 	$(IVERILOG) -g2012 -o $@ -s tb_clint $^
 
@@ -240,7 +250,7 @@ block-csr-equiv: $(BUILD)/tb_csr_equiv.vvp
 	$(VVP) $< | tee $(BUILD)/block_csr_equiv.log
 	@grep -q "PASS" $(BUILD)/block_csr_equiv.log
 
-block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-clint block-jtag block-dbg \
+block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg \
           block-decompress block-if-align block-decoder-equiv block-csr-equiv
 
 block: block-alu block-ecc block-multdiv block-clkmon block-20

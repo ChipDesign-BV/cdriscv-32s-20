@@ -37,7 +37,8 @@ table:
 | `dbg_win` | read-only observation window the TAP reaches | yes |
 | `clint` | standard timer / software interrupt controller | yes, on the main bus |
 | `clint_obi` | req/gnt/rvalid adapter for the CLINT (rejects sub-word) | yes |
-| `e2e` | end-to-end bus payload protection | **no** |
+| `e2e` | end-to-end bus payload protection (generator/checker pair) | yes, via `e2e_link` |
+| `e2e_link` | E2E master/slave endpoints for one protected bus link | yes, both TCM links |
 
 ---
 
@@ -61,8 +62,9 @@ anything in the RTL.
 | `if_align` | `block-if-align` | 101 317 | 9/9 | byte-stream walker written from the ISA rule alone |
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
+| `e2e_link` | `block-e2e-link` | 11 286 | 8/8 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic |
 
-`make block-20` runs all eleven: **2 040 074 checks**.
+`make block-20` runs all twelve: **2 051 360 checks**.
 
 The one surviving mutant in `block-dbg` is named rather than rounded
 away: moving the bridge's acknowledge a cycle earlier, so it is sent in
@@ -187,7 +189,7 @@ Largest first.
    `EXC_*_FAULT` causes. A software access violation therefore sets the
    same sticky status bit as a real memory fault. Distinguishing them
    would need a separate event source.
-6. **The CLINT is instantiated; E2E is not.**
+6. **The CLINT is instantiated; so, now, is E2E.**
 
    The CLINT owns MTIP and MSIP now. It sits on the **main bus** at
    `0x0200_0000` in a 64 KB window — the standard map puts `mtime` at
@@ -214,11 +216,42 @@ Largest first.
    external interrupt through source 16. Full regression green after the
    change (12 targets).
 
-   **E2E remains the open one**: it inserts a generator and a checker
-   into the bus datapath. (The CLINT analysis that used to sit here —
-   the 64 KB-window argument and the append-at-bit-7 check — is now the
-   implementation described above, so the prediction has been replaced
-   by the result.)
+   **E2E is now instantiated too**, on the two TCM links. (This entry
+   used to say E2E "remains the open one" because it inserts a generator
+   and a checker into the bus datapath; as with the CLINT above, the
+   prediction has been replaced by the result.) The insertion turned out
+   not to touch the bus datapath at all: the generator/checker pair is
+   wrapped into per-link endpoints (`e2e_link` — master side generates
+   the write-path check bits and checks read responses, slave side
+   checks delivered writes and generates read-path check bits over the
+   held address of the outstanding access), instantiated beside the
+   masters and the TCMs in the subsystem. The bus's own muxing is
+   untouched; its one change is exporting the existing I-TCM owner bit
+   so responses can be attributed. A mismatch latches as `STATUS`
+   bit 14 (`FLT_E2E`, the former spare — nothing moved); the access
+   still completes, because gating it would change bus timing.
+
+   Scope and the two honest caveats:
+
+   * Only the TCM links are protected. The peripheral bridge and the
+     CLINT answer for themselves through `err_o`, so those links are
+     out of this pass's scope.
+   * **Sub-word writes are covered**, because the write-path check is
+     made on the delivered request wires *before* the TCM's internal
+     read-modify-write — nothing compares against what the TCM stores,
+     so the RMW merge cannot false-flag. What the fixed `{data, addr}`
+     fold cannot cover is the **byte-enable wires themselves**: a `be`
+     corrupted in flight changes which bytes a sub-word write commits,
+     undetected by E2E (the access type read/write IS cross-checked;
+     `be` is not). Closing that would mean changing the proven `e2e`
+     fold, which this pass deliberately did not do.
+
+   `block-e2e-link` (11 286 checks, mutants 8/8 — including the one
+   that matters: address dropped from the fold at *both* ends, which
+   clean traffic and data faults cannot see and only wrong-address
+   delivery kills) proves the endpoints; the full regression and
+   co-simulation against Spike prove the integration adds no
+   functional change and no spurious flags.
 
    **The JTAG TAP is now instantiated**, with six pins on the subsystem
    (`tck_i`, `tms_i`, `tdi_i`, `trst_ni`, `tdo_o`, `tdo_oe_o`). What it
@@ -343,7 +376,7 @@ Largest first.
    model predates JTAG, PMP and the C extension, so its 100 % is 100 %
    of an out-of-date model — worth less than the number suggests. The
    whole set re-runs on stable RTL once the implementation phase
-   (E2E, Zcmp, PMP-on-fetch) closes.
+   (Zcmp, PMP-on-fetch; E2E closed 2026-08-31) closes.
 
 ---
 

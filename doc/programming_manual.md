@@ -92,7 +92,14 @@ the arrays produces uncorrectable ECC errors on the first fetch.
 
 Both TCMs are SEC-DED protected: single-bit errors are corrected
 transparently and reported; double-bit errors raise an access fault at
-the instruction that touched them.
+the instruction that touched them. The path *to* the TCMs — address
+decode, bus muxing, the interconnect — is separately covered by
+end-to-end protection: check bits over `{payload, address}` travel with
+every TCM access, so a corrupted transfer or a wrong-address delivery
+sets `STATUS` bit 14 in the safety controller. The access itself still
+completes (a corrupted write is detected, not blocked), so treat bit 14
+as it deserves: data reached the wrong place, and the reaction should
+usually be a reset.
 
 ## 2. Performance model
 

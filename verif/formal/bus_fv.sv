@@ -55,6 +55,11 @@ module bus_fv (
   logic        per_req, per_gnt, per_rvalid, per_we, per_err;
   logic [3:0]  per_be;
   logic [31:0] per_addr, per_wdata, per_rdata;
+  logic        cl_req, cl_gnt, cl_rvalid, cl_we, cl_err;
+  logic [3:0]  cl_be;
+  logic [15:0] cl_addr;
+  logic [31:0] cl_wdata, cl_rdata;
+  logic        itcm_owner;
   logic        fault_bus_err;
 
   cdriscv_32s_20_bus u_dut (
@@ -102,6 +107,16 @@ module bus_fv (
       .periph_wdata_o  (per_wdata),
       .periph_rdata_i  (per_rdata),
       .periph_err_i    (per_err),
+      .clint_req_o     (cl_req),
+      .clint_gnt_i     (cl_gnt),
+      .clint_rvalid_i  (cl_rvalid),
+      .clint_we_o      (cl_we),
+      .clint_be_o      (cl_be),
+      .clint_addr_o    (cl_addr),
+      .clint_wdata_o   (cl_wdata),
+      .clint_rdata_i   (cl_rdata),
+      .clint_err_i     (cl_err),
+      .itcm_owner_o    (itcm_owner),
       .fault_bus_err_o (fault_bus_err)
   );
 
@@ -119,19 +134,33 @@ module bus_fv (
       itcm_rvalid <= 1'b0;
       dtcm_rvalid <= 1'b0;
       per_rvalid  <= 1'b0;
+      cl_rvalid   <= 1'b0;
     end else begin
       itcm_rvalid <= itcm_req && itcm_gnt;
       dtcm_rvalid <= dtcm_req && dtcm_gnt;
       per_rvalid  <= per_req  && per_gnt;
+      cl_rvalid   <= cl_req   && cl_gnt;
     end
   end
+
+  // The CLINT slave went through exactly the omission this harness is
+  // written to prevent: it was added to the bus (2026-08-31) without
+  // being added here, its rvalid dangled as a FREE formal variable, and
+  // p_no_spurious_data promptly failed -- a free rvalid asserts
+  // data_rvalid whenever the solver likes.  A failing proof was the
+  // good outcome; had the property been written the other way round the
+  // proof would have quietly passed while constraining nothing.  Every
+  // new bus slave must get a concrete model here in the same commit.
+  assign cl_gnt = cl_req;
 
   assign itcm_rdata = 32'hAAAA_0000;
   assign dtcm_rdata = 32'hBBBB_0000;
   assign per_rdata  = 32'hCCCC_0000;
+  assign cl_rdata   = 32'hDDDD_0000;
   assign itcm_err   = 1'b0;
   assign dtcm_err   = 1'b0;
   assign per_err    = 1'b0;
+  assign cl_err     = 1'b0;
   assign itcm_busy  = 1'b0;
   assign dtcm_busy  = 1'b0;
   assign per_busy   = 1'b0;
