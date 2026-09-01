@@ -592,6 +592,35 @@ $(BUILD)/obj_cmcov/tb_clkmon_cov: rtl/common/cdriscv_32s_20_sync.sv \
 	  rtl/safety/cdriscv_32s_20_clkmon.sv \
 	  verif/block/clkmon/tb_clkmon.sv
 
+# The tck-domain blocks (jtag_tap, dbg_bridge, dbg_win) cannot be
+# exercised from the system bench -- nothing in it drives tck.  Their
+# block benches own the tck generator, so the same argument as the
+# clock monitor applies: without Verilator builds of them the report
+# shows their lines as uncovered when they are in fact tested.  The
+# merge is safe because verilator_coverage keys line points by source
+# file and line, exactly as it already does for sync.sv, which appears
+# in the clkmon build and every subsystem build.
+$(BUILD)/obj_jtagcov/tb_jtag_cov: rtl/debug/cdriscv_32s_20_jtag_tap.sv \
+                                  verif/block/jtag/tb_jtag.sv | $(BUILD)
+	$(VERILATOR) --binary --timing -sv --timescale 1ns/1ps --coverage \
+	  -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	  -Wno-SYNCASYNCNET \
+	  --top-module tb_jtag -o tb_jtag_cov -Mdir $(BUILD)/obj_jtagcov \
+	  rtl/debug/cdriscv_32s_20_jtag_tap.sv verif/block/jtag/tb_jtag.sv
+
+$(BUILD)/obj_dbgcov/tb_dbg_cov: rtl/common/cdriscv_32s_20_sync.sv \
+                                rtl/debug/cdriscv_32s_20_dbg_bridge.sv \
+                                rtl/debug/cdriscv_32s_20_dbg_win.sv \
+                                verif/block/dbg/tb_dbg.sv | $(BUILD)
+	$(VERILATOR) --binary --timing -sv --timescale 1ns/1ps --coverage \
+	  -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	  -Wno-SYNCASYNCNET \
+	  --top-module tb_dbg -o tb_dbg_cov -Mdir $(BUILD)/obj_dbgcov \
+	  rtl/common/cdriscv_32s_20_sync.sv \
+	  rtl/debug/cdriscv_32s_20_dbg_bridge.sv \
+	  rtl/debug/cdriscv_32s_20_dbg_win.sv \
+	  verif/block/dbg/tb_dbg.sv
+
 # The safety bench is where the mechanisms live that software cannot
 # provoke -- register file parity, a failing BIST, a watchdog reset.  It
 # runs under Icarus like the other benches, so without a Verilator build
@@ -608,11 +637,13 @@ $(BUILD)/obj_sftycov/tb_safety_cov: $(RTL) verif/safety/tb_safety.sv $(COVER_SV)
 coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
           $(BUILD)/obj_sftycov/tb_safety_cov \
           $(BUILD)/obj_cmcov/tb_clkmon_cov \
+          $(BUILD)/obj_jtagcov/tb_jtag_cov $(BUILD)/obj_dbgcov/tb_dbg_cov \
           $(BUILD)/cosim_isa.hex $(BUILD)/safety_test.hex \
           $(BUILD)/periph_test.hex $(BUILD)/reaction_test.hex \
           $(BUILD)/trap_test.hex $(BUILD)/ams_test.hex \
           $(BUILD)/fence_csr_test.hex $(BUILD)/rdback_test.hex \
           $(BUILD)/safety_test.hex \
+          $(BUILD)/pmp_test.hex $(BUILD)/zcmp_test.hex \
           $(BUILD)/regwalk_test.hex $(BUILD)/dtcm_zero.hex sw
 	@mkdir -p $(BUILD)/cov && rm -f $(BUILD)/cov/*.dat
 	@./$(BUILD)/obj_cov/tb_cosim_cov +HEX=$(BUILD)/cosim_isa.hex \
@@ -656,8 +687,24 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/regwalk_test.hex \
 	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=200000 > /dev/null 2>&1 && \
 	  mv coverage.dat $(BUILD)/cov/cov_regwalk.dat
+	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/pmp_test.hex \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 \
+	  > $(BUILD)/cov/pmp_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/pmp_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_pmp.dat
+	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/zcmp_test.hex \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 \
+	  > $(BUILD)/cov/zcmp_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/zcmp_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_zcmp.dat
 	@./$(BUILD)/obj_cmcov/tb_clkmon_cov > /dev/null 2>&1 && \
 	  mv coverage.dat $(BUILD)/cov/cov_clkmon.dat
+	@./$(BUILD)/obj_jtagcov/tb_jtag_cov > $(BUILD)/cov/jtag_cov.log 2>&1 && \
+	  grep -q "PASS" $(BUILD)/cov/jtag_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_jtag.dat
+	@./$(BUILD)/obj_dbgcov/tb_dbg_cov > $(BUILD)/cov/dbg_cov.log 2>&1 && \
+	  grep -q "PASS" $(BUILD)/cov/dbg_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_dbg.dat
 	@./$(BUILD)/obj_sftycov/tb_safety_cov +ITCM_HEX=$(BUILD)/safety_test.hex \
 	  > /dev/null 2>&1 && mv coverage.dat $(BUILD)/cov/cov_safetybench.dat
 	verilator_coverage --write $(BUILD)/cov/merged.dat $(BUILD)/cov/cov_*.dat

@@ -166,6 +166,41 @@ r6b7: li a0, 26
     li   t0, CAUSE_ILLEGAL
     beq  s8, t0, fail
 
+/* --- 6c: reserved encodings inside the variant-2 extensions ---------
+ * Same idea as 6b, for the arms Zbb/Zcb added: the decoder's unary-Zbb
+ * group and shift-immediate funct7 default, and the decompressor's two
+ * reserved Zcb slots.  The compressed ones are .hword, which also
+ * leaves the following code halfword-aligned on purpose -- the
+ * realigner has to cope, and the redirect out of the trap re-aligns.
+ */
+    la   s7, r6c1
+    .word 0x60301013            /* OP-IMM funct3=001 funct7=0110000,
+                                 * rs2 field 00011: not clz/ctz/cpop/
+                                 * sext.b/sext.h -> reserved */
+r6c1: li a0, 27
+    li   t0, CAUSE_ILLEGAL
+    bne  s8, t0, fail
+
+    la   s7, r6c2
+    .word 0xfe005013            /* OP-IMM funct3=101, funct7 1111111:
+                                 * no srli/srai/bexti/rori/orc.b/rev8 */
+r6c2: li a0, 28
+    li   t0, CAUSE_ILLEGAL
+    bne  s8, t0, fail
+
+    la   s7, r6c3
+    .hword 0x9c79               /* Zcb unary slot 100 = c.zext.w,
+                                 * RV64 only: reserved on RV32 */
+r6c3: li a0, 29
+    li   t0, CAUSE_ILLEGAL
+    bne  s8, t0, fail
+
+    la   s7, r6c4
+    .hword 0x9c01               /* Zcb group [6:5] = 00: reserved */
+r6c4: li a0, 31
+    li   t0, CAUSE_ILLEGAL
+    bne  s8, t0, fail
+
 /* --- 7: load address misaligned ------------------------------------ */
     la   s7, r7
     la   t1, scratch

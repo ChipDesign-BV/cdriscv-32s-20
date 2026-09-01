@@ -36,7 +36,8 @@ describe different things.
 > | `riscv-arch-test`, 85 of 85 | **re-run and extended** — 143 of 143 now pass, including the B and C tests |
 > | 10⁹-instruction co-simulation vs Spike | **re-run and met** — 1 015 480 871 instructions, zero mismatches |
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence bench below |
-> | coverage, fault injection, FMEDA | **not re-run** — all measured on variant 1's netlist |
+> | coverage (O6/O7) | **re-run** — line 100 % with 25 reviewed waivers (95.8 % measured), functional 100 % of a model extended to C/Zcmp, PMP, CLINT, E2E and the debug path; toggle 94.4 % sits 0.6 points under the inherited ≥ 95 % criterion, open |
+| fault injection, FMEDA | **not re-run** — measured on variant 1's netlist |
 > | RTL2GDS: DRC, LVS, timing closure | **run on the complete RTL** — DRC, antenna, XOR and LVS all clean, hold clean at every corner; **setup misses by 0.719 ns at the slow corner** and is not closed |
 >
 > What *has* been established in this repository, from runs in it:
@@ -192,7 +193,8 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | Architectural suite | **143 of 143 pass**, incl. B and C | `make riscof` against Spike, on the RTL with Zcmp; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
 | Co-simulation vs Spike | **O2 met** | 1 015 480 871 instructions, 27 000 programs, zero mismatches, against one frozen RTL revision — checked, not assumed |
 | Formal | **not re-run** | variant 1's decoder proof was of variant 1's decoder |
-| Coverage, fault injection, FMEDA | **not re-run** | all measured on variant 1's netlist |
+| Coverage (O6/O7) | **line & functional met, toggle open, 2026-09-01** | `make coverage`: line 95.8 % measured, **100 % with 25 reviewed waivers** ([verif/coverage_waivers.md](verif/coverage_waivers.md)); functional **100 %, 91 of 91 points** of a model that covers C/Zcmp, PMP, CLINT, E2E and the tck-domain debug blocks (merged from their own benches); toggle **94.4 %**, 0.6 points under the inherited ≥ 95 % criterion — open |
+| Fault injection, FMEDA | **not re-run** | measured on variant 1's netlist |
 | Physical implementation | **DRC / antenna / XOR / LVS clean** | `flow/runs/v2full` on the complete RTL: routing DRC 0, antenna 0, KLayout DRC 0, XOR 0, LVS matches uniquely (153 626 devices, 79 499 nets) |
 | Timing closure | **not met** | setup −0.719 ns at slow 1.08 V/125 °C, 46 endpoints, all in the fetch stage; hold clean everywhere. See [doc/variant_status.md](doc/variant_status.md) §3.8 |
 

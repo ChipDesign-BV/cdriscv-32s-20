@@ -219,6 +219,31 @@ _start:
     li   t0, -1
     sw   t0, 0(s0)              /* clear the safety status */
 
+    /* ---- 10/11: a sub-word CLINT access is a bus error --------------
+     * The adapter rejects any access with be != 4'b1111: a byte write
+     * performed as a word write would corrupt a 64-bit counter's other
+     * bytes, and dropping it silently would lose the write.  The
+     * reject must arrive as an access fault the core traps on, not as
+     * a silent no-op.  Both instructions are uncompressible (no
+     * operand fits the C register set), so the handler's mepc + 4 skip
+     * is exact.
+     */
+    li   s9, 0                  /* the handler records mcause here */
+    li   t1, CLINT_MSIP
+    sh   zero, 0(t1)            /* halfword store: store access fault */
+    li   a0, 10
+    li   t0, 7
+    bne  s9, t0, fail
+
+    li   s9, 0
+    lb   t0, 0(t1)              /* byte load: load access fault */
+    li   a0, 11
+    li   t0, 5
+    bne  s9, t0, fail
+
+    li   t0, -1
+    sw   t0, 0(s0)              /* the faults latched FLT_BUS_ERR: clear */
+
     /* ---- 6: watchdog services correctly ---------------------------- */
     li   s5, WDOG_BASE
     li   t0, 3000
@@ -302,6 +327,7 @@ trap_handler:
     csrr t6, mcause
     bltz t6, irq_path           /* mcause[31] set => interrupt */
 
+    mv   s9, t6                 /* record the cause for checks 10/11 */
     csrr t6, mepc
     addi t6, t6, 4
     csrw mepc, t6

@@ -646,3 +646,38 @@ It is killed by the directed test's PMP-denied push, which finds sp
 already moved at the trap (exit code 18) -- the restartability property
 is only observable on the trap path, which is exactly why the directed
 test exists next to the cosim.
+
+## 17. What the coverage re-run itself found (O6/O7)
+
+The coverage work (2026-09-01) was mostly measurement, and a routine
+summary of it lives in variant_status.md §3.9. Two things it surfaced
+are findings rather than numbers.
+
+**`multdiv` carries a verified multiply datapath the subsystem cannot
+select.** Line coverage flagged the MULH/MULHSU/MULHU result arm as
+unreached by every test in the merged run. That is not a stimulus gap:
+variant 2's core routes *every* multiply to the new single-cycle
+`cdriscv_32s_20_mult` (`start_md` fires only for `!md_is_mul`), so the
+iterative multiply half of `multdiv` — datapath, correction logic and
+the FSM steps that serve it — is dead in this integration. The module's
+`MD_MUL` arm still read as covered, which is worth dwelling on: `op_q`
+*resets* to that encoding, so the idle mux evaluates the MUL arm every
+cycle, and a coverage report happily counted a dead feature as alive
+because its selector happened to be the reset value. Only the
+MULH-group arm, whose encoding never occurs at rest, betrayed the dead
+half. Recorded as waiver W5 (with a to-do) in
+verif/coverage_waivers.md; the standalone `block-multdiv` bench remains
+the evidence that the logic is correct, and the FMEDA should know the
+area is latent-fault surface with no functional observer.
+
+**The coverage recipe's failure guard could not see a failing test.**
+Every system-test run in the `coverage:` target is joined to its `mv`
+with `&&`, and the recipe's own comment says a failing simulation is
+thereby excluded from the merge. It is not: `tb_cdriscv_subsys`
+reports FAIL by *display* and exits through `$finish`, so its exit code
+is 0 on a failed check and the `&&` only filters crashes. Coverage
+measured from a failing test would have merged silently — the same
+shape as the `vvp | tee` pipefail finding that opens the Makefile,
+one layer up. The two runs added this round (pmp, zcmp) capture the
+log and grep the verdict; retrofitting the same guard to the
+pre-existing runs is left open and noted in variant_status.md §3.9.

@@ -37,8 +37,47 @@ module cdriscv_32s_20_core_cover (
     input logic       illegal_instr_dec,
     input logic       trap_taken, take_irq, take_exc,
     input logic [4:0] trap_cause,
-    input logic       ctrl_transfer
+    input logic       ctrl_transfer,
+    // compressed / Zcmp (added 2026-09-01: the model predated the C
+    // extension and the ST_SEQ sequencer)
+    input logic        instr_compressed, instr_zcmp,
+    input logic [31:0] instr_raw,
+    input logic        seq_issue,
+    // PMP (added 2026-09-01: the model predated the checker).  The
+    // match/perm/lock vectors come from inside the two checker
+    // instances -- a bind port expression elaborates in the core's
+    // scope, so it may reach into them hierarchically.
+    input logic        pmp_allow_data,
+    input logic        instr_req,
+    input logic [7:0]  d_match, d_perm, d_lock,
+    input logic [7:0]  f_match, f_perm, f_lock
 );
+  // Zcmp op class, decoded from the raw halfword with the same field
+  // tests as cdriscv_32s_20_zcmp.  Only meaningful under instr_zcmp.
+  logic cm_is_mv, cm_is_push, cm_is_pop, cm_is_popret, cm_is_popretz;
+  assign cm_is_mv      = (instr_raw[15:10] == 6'b101011) && instr_raw[5];
+  assign cm_is_push    = !cm_is_mv && (instr_raw[10:9] == 2'b00);
+  assign cm_is_pop     = !cm_is_mv && (instr_raw[10:9] == 2'b01);
+  assign cm_is_popretz = !cm_is_mv && (instr_raw[10:9] == 2'b10);
+  assign cm_is_popret  = !cm_is_mv && (instr_raw[10:9] == 2'b11);
+
+  // First match wins, replicated from the checker.  If this replica
+  // ever drifts from the RTL the points below stop hitting -- a false
+  // MISS, never a false hit, which is the safe direction for a monitor.
+  function automatic logic [3:0] pmp_win(input logic [7:0] m);
+    pmp_win = 4'd8;
+    for (int i = 7; i >= 0; i--) if (m[i]) pmp_win = 4'(i);
+  endfunction
+
+  logic [3:0] dw, fw;
+  assign dw = pmp_win(d_match);
+  assign fw = pmp_win(f_match);
+
+  // a data access consulting the data checker this cycle: a load/store
+  // issuing from decode, or one memory beat of a Zcmp sequence
+  logic d_check;
+  assign d_check = (instr_exec && lsu_req_dec) || seq_issue;
+
   always @(posedge clk) if (rst_n) begin
     // instruction classes actually retired
     cp_retire_branch:   cover (retire && branch_dec);
@@ -79,6 +118,42 @@ module cdriscv_32s_20_core_cover (
     cp_irq_soft:        cover (take_irq && trap_cause == 5'd3);
     cp_irq_timer:       cover (take_irq && trap_cause == 5'd7);
     cp_irq_ext:         cover (take_irq && trap_cause == 5'd11);
+
+    // compressed execution.  A 16-bit encoding retiring, and each Zcmp
+    // op class retiring as ONE instruction (retire in ST_SEQ holds the
+    // cm.* at the aligner output, so instr_zcmp/instr_raw are its own).
+    cp_c_retire:        cover (retire && instr_compressed);
+    cp_zcmp_push:       cover (retire && instr_zcmp && cm_is_push);
+    cp_zcmp_pop:        cover (retire && instr_zcmp && cm_is_pop);
+    cp_zcmp_popret:     cover (retire && instr_zcmp && cm_is_popret);
+    cp_zcmp_popretz:    cover (retire && instr_zcmp && cm_is_popretz);
+    cp_zcmp_mv:         cover (retire && instr_zcmp && cm_is_mv);
+    // the longest sequence: rlist 15 = {ra, s0-s11}, 13 registers
+    cp_zcmp_rlist_max:  cover (retire && instr_zcmp && !cm_is_mv
+                               && instr_raw[7:4] == 4'd15);
+    // an interrupt arriving with a cm.* as the NEXT retire: taken at
+    // the boundary, before the sequence starts -- the deferral point
+    cp_irq_zcmp_next:   cover (take_irq && instr_zcmp);
+
+    // PMP.  A data denial trapping (from decode or from a sequence
+    // beat), a fetch fault trapping (cause 1: a PMP-injected entry or a
+    // fetch bus error -- the injection itself is cp_fetch_denied in the
+    // fetch-stage model), and the two rule directions on the winning
+    // region: an unlocked region does NOT bind machine mode, a locked
+    // one does.
+    cp_pmp_data_deny:    cover (take_exc && instr_exec && lsu_req_dec
+                                && !pmp_allow_data);
+    cp_pmp_seq_deny:     cover (seq_issue && !pmp_allow_data);
+    cp_cause_if_fault:   cover (take_exc && trap_cause == 5'd1);
+    cp_pmp_d_unlocked_mmode: cover (d_check && (dw != 4'd8)
+                                    && !d_perm[dw[2:0]] && !d_lock[dw[2:0]]
+                                    && pmp_allow_data);
+    cp_pmp_d_locked_deny:    cover (d_check && (dw != 4'd8)
+                                    && d_lock[dw[2:0]] && !pmp_allow_data);
+    // fetch through a matching unlocked region: the request only issues
+    // because M-mode passed through it (a denied word is never requested)
+    cp_pmp_f_unlocked_mmode: cover (instr_req && (fw != 4'd8)
+                                    && !f_perm[fw[2:0]] && !f_lock[fw[2:0]]);
   end
 endmodule
 
@@ -93,7 +168,14 @@ bind cdriscv_32s_20_core cdriscv_32s_20_core_cover u_cover (
     .fence (fence), .fencei (fencei),
     .illegal_instr_dec (illegal_instr_dec),
     .trap_taken (trap_taken), .take_irq (take_irq), .take_exc (take_exc),
-    .trap_cause (trap_cause), .ctrl_transfer (ctrl_transfer)
+    .trap_cause (trap_cause), .ctrl_transfer (ctrl_transfer),
+    .instr_compressed (instr_compressed), .instr_zcmp (instr_zcmp),
+    .instr_raw (instr_raw), .seq_issue (seq_issue),
+    .pmp_allow_data (pmp_allow_data), .instr_req (instr_req_o),
+    .d_match (u_pmp_data.match), .d_perm (u_pmp_data.perm),
+    .d_lock (u_pmp_data.lock),
+    .f_match (u_pmp_fetch.match), .f_perm (u_pmp_fetch.perm),
+    .f_lock (u_pmp_fetch.lock)
 );
 
 // ------------------------------------------------------------ fetch stage
@@ -174,6 +256,15 @@ module cdriscv_32s_20_safety_cover (
     cp_flt_ams:       cover (fault_latched[10]);
     cp_flt_sw:        cover (fault_latched[11]);
     cp_flt_trap:      cover (fault_latched[12]);
+    // the sources added since the model was first written (2026-09-01).
+    // cfg parity latches through its own ungated path, so it is
+    // sampled from STATUS rather than fault_latched.  FLT_E2E latching
+    // is reached through the INJECT register (safety_test check 10);
+    // the E2E *checker* detecting a real mismatch is not reachable in a
+    // fault-free simulation and is evidenced by block-e2e-link and its
+    // mutation run instead -- see verif/coverage_waivers.md W3.
+    cp_flt_cfg_par:   cover (status_q[13]);
+    cp_flt_e2e:       cover (fault_latched[14]);
     // and each configured reaction actually firing
     cp_react_irq:     cover (irq_o);
     cp_react_reset:   cover (reset_req_o);
@@ -186,6 +277,74 @@ bind cdriscv_32s_20_safety_ctrl cdriscv_32s_20_safety_cover u_cover (
     .clk (clk_i), .rst_n (rst_ni),
     .status_q (status_q), .fault_latched (fault_latched),
     .irq_o (irq_o), .reset_req_o (reset_req_o), .err_pin_o (err_pin_o)
+);
+
+// ----------------------------------------------------------- realigner
+// (added 2026-09-01) The straddle is the whole difficulty of 16-bit
+// fetch granularity: a 32-bit instruction whose halves live in two
+// words, covered by two independent ECC code words.
+module cdriscv_32s_20_ifal_cover (
+    input logic clk, rst_n,
+    input logic accept, emit_straddle, start_straddle, emit_compressed
+);
+  always @(posedge clk) if (rst_n) begin
+    // an instruction straddling a word boundary actually retiring
+    // (instr_ready_i is the core's retire, so accept is retirement)
+    cp_straddle_retire: cover (accept && emit_straddle);
+    cp_straddle_start:  cover (start_straddle);
+    cp_c_accept:        cover (accept && emit_compressed);
+  end
+endmodule
+
+bind cdriscv_32s_20_if_align cdriscv_32s_20_ifal_cover u_cover (
+    .clk (clk_i), .rst_n (rst_ni),
+    .accept (accept), .emit_straddle (emit_straddle),
+    .start_straddle (start_straddle), .emit_compressed (emit_compressed)
+);
+
+// ---------------------------------------------------------------- CLINT
+// (added 2026-09-01) The level semantics the spec forces, and the
+// sub-word reject the adapter exists for.
+module cdriscv_32s_20_clint_cover (
+    input logic clk, rst_n,
+    input logic irq_timer_o, irq_soft_o, req_i, we_i
+);
+  logic mtip_q;
+  always @(posedge clk) begin
+    if (!rst_n) mtip_q <= 1'b0;
+    else        mtip_q <= irq_timer_o;
+  end
+  always @(posedge clk) if (rst_n) begin
+    // MTIP rising: mtime reached mtimecmp while it was armed
+    cp_mtip_rise:   cover (irq_timer_o && !mtip_q);
+    cp_msip_high:   cover (irq_soft_o);
+    cp_clint_write: cover (req_i &&  we_i);
+    cp_clint_read:  cover (req_i && !we_i);
+  end
+endmodule
+
+bind cdriscv_32s_20_clint cdriscv_32s_20_clint_cover u_cover (
+    .clk (clk_i), .rst_n (rst_ni),
+    .irq_timer_o (irq_timer_o), .irq_soft_o (irq_soft_o),
+    .req_i (req_i), .we_i (we_i)
+);
+
+module cdriscv_32s_20_clint_obi_cover (
+    input logic clk, rst_n,
+    input logic req_i, subword, rvalid_o, err_o
+);
+  always @(posedge clk) if (rst_n) begin
+    // a sub-word access rejected before it reaches the CLINT, and the
+    // bus error response that rides back from it
+    cp_clint_subword:  cover (req_i && subword);
+    cp_clint_err_resp: cover (rvalid_o && err_o);
+  end
+endmodule
+
+bind cdriscv_32s_20_clint_obi cdriscv_32s_20_clint_obi_cover u_cover (
+    .clk (clk_i), .rst_n (rst_ni),
+    .req_i (req_i), .subword (subword),
+    .rvalid_o (rvalid_o), .err_o (err_o)
 );
 
 // ------------------------------------------------------------- watchdog

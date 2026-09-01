@@ -57,7 +57,7 @@ anything in the RTL.
 | `pmp` | `block-pmp` | 52 419 | 9/9 | independent address-match model |
 | `e2e` | `block-e2e` | 119 071 | defect found | fault-injection escape statistics, split by fault class |
 | `clint` | `block-clint` | 11 918 | 7/7 | independent register model |
-| `jtag_tap` | `block-jtag` | 21 | 7/7 | IEEE 1149.1 mandatory sequences |
+| `jtag_tap` | `block-jtag` | 23 | 7/7 | IEEE 1149.1 mandatory sequences, now with the Pause-IR detour and an undecoded IR behaving as BYPASS (2026-09-01) |
 | `dbg_bridge` + `dbg_win` | `block-dbg` | 35 | 9/10 | the same reads at three tck:clk ratios |
 | `decompress` | `block-decompress` | 65 536 | 7/7 | **binutils**, over every 16-bit encoding — now including the Zcmp flag both ways |
 | `zcmp` (+ core `ST_SEQ`) | `block-zcmp` | 312 seq / 1 744 steps | 9/9 | **Spike**, replaying the dumped micro-ops against a commit log built from binutils-assembled cm.* mnemonics (`scripts/check_zcmp.py`); the 9 mutants span the table AND the core sequencer (`scripts/mutate_zcmp.py`, killed by block-zcmp or the `zcmp` directed test) |
@@ -66,7 +66,7 @@ anything in the RTL.
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 | `e2e_link` | `block-e2e-link` | 11 286 | 8/8 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic |
 
-`make block-20` runs all thirteen: **2 051 672 checks**.
+`make block-20` runs all thirteen: **2 051 674 checks**.
 
 The one surviving mutant in `block-dbg` is named rather than rounded
 away: moving the bridge's acknowledge a cycle earlier, so it is sent in
@@ -492,19 +492,44 @@ Largest first.
    `ref_clk_i` domain was unconstrained, so it is a comparison point and
    not a fallback.
 
-9. **Coverage now has a first variant-2 baseline; fault injection and
-   the FMEDA have not been re-run.** `make coverage` (2026-08-31, on the
-   pre-CLINT revision): RTL line **80.0 %** (443 of 554), toggle
-   **87.8 %**, functional **100 %** — with three caveats that keep this
-   a baseline rather than a result. The debug blocks (`jtag_tap`,
-   `dbg_bridge`, `dbg_win`) and `pmp` read at or near 0 % because the
-   coverage build does not include their benches and the system tests
-   leave PMP at its all-regions-off reset. And the functional-coverage
-   model predates JTAG, PMP and the C extension, so its 100 % is 100 %
-   of an out-of-date model — worth less than the number suggests. The
-   whole set re-runs on stable RTL now that the implementation phase
-   has closed (Zcmp, the last item, PMP-on-fetch and E2E all closed
-   2026-08-31).
+9. **Coverage (O6/O7) is done for this RTL; fault injection and the
+   FMEDA have not been re-run.** `make coverage` (2026-09-01, on the
+   complete RTL): RTL line **95.8 %** measured (568 of 593), **100 %
+   with the 25 reviewed waivers** in
+   [verif/coverage_waivers.md](../verif/coverage_waivers.md) (W2: 20
+   defensive default arms, re-reviewed and renumbered; W4: the
+   fetch-misalign trap C makes unreachable; W5: `multdiv`'s dead
+   multiply arm — a finding, §17 of verification_findings_20.md).
+   Toggle **94.4 %**, functional **100 % (91 of 91 points)** — and the
+   model now describes *this* design: 26 points added for compressed
+   execution (16-bit retire, word-boundary straddle, every Zcmp op
+   class, max-rlist, irq-deferred-at-a-cm-boundary), PMP (data and
+   fetch denial trapping, the M-mode-through-unlocked rule direction,
+   locked-region deny, a denial mid-Zcmp-sequence), CLINT (MTIP rise,
+   MSIP, the sub-word reject as a bus error), the straddle machinery,
+   and the three fault sources the safety model postdated (cfg parity,
+   E2E via INJECT — the checker's own detection is waiver W3, covered
+   by block-e2e-link's mutation run — and the FLT_E2E latch).
+
+   What changed to make the numbers honest rather than merely better:
+   `pmp_test` and `zcmp_test` joined the coverage run list (with their
+   verdicts grepped, since the bench exits 0 on FAIL — §17); the
+   tck-domain benches `tb_jtag` and `tb_dbg` got Verilator coverage
+   builds merged into the same database, taking `jtag_tap`,
+   `dbg_bridge` and `dbg_win` from 0 % to 97.5/100/100 %; `pmp_test`
+   grew NAPOT/TOR/pmpcfg1 checks (24-31), `trap_test` the four
+   reserved Zbb/Zcb encodings (27/28/29/31), `periph_test` the sub-word
+   CLINT reject (10/11), `safety_test` the FLT_E2E injection (10/11),
+   `cosim_isa` the c.xor/c.zext.b/c.not forms (re-proven against
+   Spike), and `tb_jtag` the Pause-IR path and undecoded-IR-as-BYPASS.
+
+   **Open:** toggle sits at 94.4 % against the plan's inherited ≥ 95 %
+   criterion — 0.6 points short, unwaived and uninvestigated, so O6 is
+   met on its line-coverage half and open on toggle; the pre-existing
+   coverage runs still trust the bench's exit code (only pmp/zcmp grep
+   the verdict); `gate-fsm-core` predates the 3-bit ST_SEQ state
+   machine (to-do attached to W2a); fault injection and the FMEDA
+   remain variant-1 results.
 
 ---
 

@@ -170,7 +170,58 @@ module tb_jtag;
     checks++;
     if (tdo_oe !== 1'b1) fail("tdo_oe not asserted in Shift-DR");
 
-    // ---- 7. TRST is asynchronous and forces IDCODE ------------------------
+    // ---- 7. a pause in the middle of an IR scan changes nothing ----------
+    // Debuggers with slow hosts park in Pause-IR mid-scan.  Shift two
+    // bits of BYPASS, detour Exit1 -> Pause -> Pause -> Exit2 -> back
+    // to Shift, shift the last two, and the assembled IR must still be
+    // exactly BYPASS: one bit of DR delay.
+    goto_reset();
+    enter_shift_ir();
+    tck_pulse(1'b0, 1'b1);   // shift bit 0
+    tck_pulse(1'b1, 1'b1);   // shift bit 1, -> Exit1-IR
+    tck_pulse(1'b0, 1'b0);   // -> Pause-IR
+    tck_pulse(1'b0, 1'b0);   // stay in Pause-IR
+    tck_pulse(1'b1, 1'b0);   // -> Exit2-IR
+    tck_pulse(1'b0, 1'b0);   // -> Shift-IR (no bit shifted)
+    tck_pulse(1'b0, 1'b1);   // shift bit 2
+    tck_pulse(1'b1, 1'b1);   // shift bit 3, -> Exit1-IR
+    tck_pulse(1'b1, 1'b0);   // -> Update-IR
+    tck_pulse(1'b0, 1'b0);   // -> Run-Test/Idle
+    enter_shift_dr();
+    begin
+      logic [63:0] pattern, out;
+      pattern = 64'b0110_1001_0011;
+      scan(12, pattern, out);
+      checks++;
+      for (int i = 1; i < 12; i++)
+        if (out[i] !== pattern[i-1]) begin
+          fail($sformatf("BYPASS after paused IR scan, bit %0d: got %b want %b",
+                         i, out[i], pattern[i-1]));
+          break;
+        end
+    end
+
+    // ---- 8. an undecoded IR value behaves as BYPASS ----------------------
+    // 1149.1 requires unimplemented instructions to select the bypass
+    // register, so an old debugger scanning an unknown opcode still has
+    // a defined, one-bit path.
+    goto_reset();
+    enter_shift_ir(); scan(4, 64'b0110, got);   // 0110: not decoded
+    enter_shift_dr();
+    begin
+      logic [63:0] pattern, out;
+      pattern = 64'b1100_1010_0101;
+      scan(12, pattern, out);
+      checks++;
+      for (int i = 1; i < 12; i++)
+        if (out[i] !== pattern[i-1]) begin
+          fail($sformatf("undecoded IR not BYPASS, bit %0d: got %b want %b",
+                         i, out[i], pattern[i-1]));
+          break;
+        end
+    end
+
+    // ---- 9. TRST is asynchronous and forces IDCODE ------------------------
     enter_shift_ir(); scan(4, 64'b1000, got);   // select something else
     trst_n = 1'b0; #7 trst_n = 1'b1;            // pulse between TCKs
     enter_shift_dr(); scan(32, 64'b0, got);

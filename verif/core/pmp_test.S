@@ -42,6 +42,8 @@
     .equ CFG_NA4_RW,     0x13     /* A=NA4, R=1, W=1, unlocked        */
     .equ CFG_NA4_NONE_L, 0x90     /* A=NA4, no permissions, LOCKED    */
     .equ CFG_NA4_RW_L,   0x93     /* A=NA4, R=1, W=1, X=0, LOCKED     */
+    .equ CFG_NAPOT_RW_L, 0x9b     /* A=NAPOT, R=1, W=1, LOCKED        */
+    .equ CFG_TOR_NONE_L, 0x88     /* A=TOR, no permissions, LOCKED    */
 
     .section .text.init, "ax"
     .global _start
@@ -215,6 +217,70 @@ prefetch_skip:
     li   a0, 23
     bne  t0, t1, fail
 
+    /* ================= the other two match modes ================== */
+
+    /* ---- 11. NAPOT, in the upper pmpcfg register ------------------ */
+    /* Everything so far used NA4 in pmpcfg0.  Regions 4-7 live in
+       pmpcfg1, and the NAPOT and TOR matchers are separate arms of
+       the checker -- untested is untested, whatever NA4 proved.
+       Region 4: NAPOT over the 8-byte pair (pmpaddr trailing-zero
+       bit 0 selects 2^3 bytes), LOCKED with R+W, so the lock binds
+       and the permissions grant: both words must read and write
+       WITHOUT a trap. */
+    la   s0, napot_pair
+    srli t0, s0, 2                /* 8-byte aligned: bit 0 is 0       */
+    csrw pmpaddr4, t0
+    li   t0, CFG_NAPOT_RW_L
+    csrw pmpcfg1, t0
+    csrr t1, pmpcfg1              /* the write took                   */
+    li   a0, 24
+    bne  t1, t0, fail
+
+    li   t1, 0x5eed4a11
+    sw   t1, 0(s0)
+    lw   t2, 0(s0)
+    li   a0, 25
+    bne  t2, t1, fail
+    li   t1, 0x5eed4a22
+    sw   t1, 4(s0)                /* the second word of the block     */
+    lw   t2, 4(s0)
+    li   a0, 26
+    bne  t2, t1, fail
+    li   a0, 27
+    li   t0, 3
+    bne  s11, t0, fail            /* no trap in any of that           */
+
+    /* ---- 12. TOR, denying, bounded by the previous entry ---------- */
+    /* Region 5: TOR compares against pmpaddr4 as its lower bound --
+       exactly the cross-entry coupling worth proving.  Range
+       [napot_pair, napot_pair+12) covers the pair and tor_word; the
+       pair still hits region 4 FIRST (lower index wins) and stays
+       readable, tor_word falls through to region 5: locked, no
+       permissions, deny. */
+    addi t0, s0, 12
+    srli t0, t0, 2
+    csrw pmpaddr5, t0
+    li   t0, (CFG_TOR_NONE_L << 8) | CFG_NAPOT_RW_L
+    csrw pmpcfg1, t0
+
+    lw   t2, 0(s0)                /* first match is region 4: allowed */
+    li   a0, 28
+    li   t0, 3
+    bne  s11, t0, fail
+
+    la   s1, tor_word
+    la   s7, after_tor
+    lw   t2, 0(s1)                /* must trap                        */
+after_tor:
+    li   a0, 29
+    li   t0, 4
+    bne  s11, t0, fail            /* exactly one more trap            */
+    li   a0, 30
+    li   t0, CAUSE_LFAULT
+    bne  s8, t0, fail
+    li   a0, 31
+    bne  s9, s1, fail             /* mtval is the denied address      */
+
 pass:
     li   t0, EXIT_REG
     sw   zero, 0(t0)
@@ -251,6 +317,13 @@ trap_handler:
 guarded:
     .word 0
 neighbour:
+    .word 0
+    .balign 8                    /* NAPOT block: naturally aligned    */
+napot_pair:
+    .word 0, 0
+tor_word:                        /* directly above the pair: inside
+                                    region 5's TOR range, outside
+                                    region 4's NAPOT block           */
     .word 0
 
     .section .bss

@@ -8,13 +8,21 @@ covers it — not a note that nobody got round to it.
 Anything not listed here is a gap to be closed by a test, and the
 current list of those is in `verification_findings.md`.
 
-## W2 — defensive `default` arms over fully enumerated selectors (2026-08-21)
+## W2 — defensive `default` arms over constrained selectors (2026-08-21, re-reviewed 2026-09-01)
 
-Fourteen uncovered lines remain and every one of them is a `default:`
-arm whose selector is already fully enumerated by the arms above it.
-They fall into two groups — a third, W2c, has since been withdrawn.
+**Re-reviewed against the variant-2 RTL on 2026-09-01**, after the O6/O7
+re-run: every line number below was re-derived from the fresh annotated
+database (the Zcmp sequencer and PMP moved most of them), six new
+lines entered the class (three decompressor quadrant-01 defaults, the
+two PMP checker defaults, the JTAG TAP state default), and — the part
+that needed actual review —
+**the original "fully enumerated" claim is no longer true for four of
+the selectors** and their arguments have been re-made below. W4 and W5
+were added in the same review.
 
-Line coverage with this waiver applied is 100 %; without it, 96.3 %.
+With W2, W4 and W5 applied, line coverage is 100 % (593 of 593);
+without them, 95.8 % (568 of 593). The waived total is 25 lines:
+20 here, 4 in W4, 1 in W5.
 
 ### A correction: this waiver was wrong when first written
 
@@ -42,18 +50,30 @@ part of it.
 
 ### W2a — state machine recovery arms
 
-| file | line |
-|------|------|
-| `cdriscv_32s_20_ams_if.sv` | 159 |
-| `cdriscv_32s_20_apb_bridge.sv` | 72 |
-| `cdriscv_32s_20_core.sv` | 436 |
-| `cdriscv_32s_20_lsu.sv` | 104 |
-| `cdriscv_32s_20_mbist.sv` | 127 |
-| `cdriscv_32s_20_multdiv.sv` | 115 |
+| file | line | note |
+|------|------|------|
+| `cdriscv_32s_20_ams_if.sv` | 161 | |
+| `cdriscv_32s_20_apb_bridge.sv` | 73 | |
+| `cdriscv_32s_20_core.sv` | 675 | enum is now 3 bits with **5 of 8** values used (ST_SEQ) |
+| `cdriscv_32s_20_jtag_tap.sv` | 85 | new 2026-09-01; 16 of 16 values used |
+| `cdriscv_32s_20_lsu.sv` | 105 | |
+| `cdriscv_32s_20_mbist.sv` | 132 | |
+| `cdriscv_32s_20_multdiv.sv` | 116 | |
 
-Each is `default: state_d = <IDLE>;` in a `unique case (state_q)` that
-already lists every value of the state enum. No sequence of inputs can
-put the register outside its enum, so simulation cannot reach these.
+Each is `default: state_d = <IDLE>;` in a `unique case (state_q)` whose
+register is only ever assigned members of its enum, so no sequence of
+inputs can reach the arm in simulation. The original wording said the
+enums were fully enumerated; for the core that stopped being true when
+ST_SEQ widened the state to three bits with five values used, and the
+argument now rests (as it always really did) on the register's
+assignments, plus the gate-level forcing below.
+
+The JTAG TAP line is the same shape (its 4-bit enum does use all 16
+values), and its recovery property has direct functional evidence
+instead of a gate-level forcing: tb_jtag test 4 drives the machine into
+a spread of states and requires five TMS=1 clocks to reach
+Test-Logic-Reset from every one — the recovery an attached debugger
+actually uses.
 
 **They must not be deleted, and that is the point of the waiver.** An
 upset in a state register *can* put the machine into an unused
@@ -79,9 +99,18 @@ read. Both recoveries survive synthesis.
 `make gate-fsm-ams` and `make gate-fsm-core` complete the set. **No
 machine in this waiver now rests on the RTL argument alone.**
 
+*2026-09-01 caveat:* that sentence was written about the original six
+machines. The JTAG TAP row rests on tb_jtag's five-TMS recovery sweep
+rather than a gate-level forcing, and `gate-fsm-core` was run against
+the pre-Zcmp core, whose state machine was two bits — the current one
+is three bits with ST_SEQ. Re-running `gate-fsm-core` against the
+five-state machine is a to-do attached to this waiver, not an omission
+to hide.
+
 The core needed a different check, and the reason is worth stating: its
-RTL enum is two bits with all four values used, so the `default:` arm
-is unreachable in the RTL — but synthesis re-encodes to **three** bits,
+RTL enum (at the time of the gate run) was two bits with all four
+values used, so the `default:` arm was unreachable in the RTL — but
+synthesis re-encodes to **three** bits,
 and the netlist therefore has unused encodings the RTL never had. Every
 value of the driven bits maps to a legal state, so "recovers to a legal
 state" is true by construction and says nothing. What the check asserts
@@ -123,24 +152,41 @@ A bench built on those references spends its effort on naming artefacts
 rather than on the design. An attempt to cover all six machines at once
 from the subsystem netlist was abandoned for exactly that reason.
 
-### W2b — mux arms over selectors with no spare encodings
+### W2b — mux arms over selectors the design never drives there
 
-| file | line | selector |
-|------|------|----------|
-| `cdriscv_32s_20_alu.sv` | 124 | ALU operation enum |
-| `cdriscv_32s_20_decoder.sv` | 252 | OP-IMM `funct3`, all eight values listed |
-| `cdriscv_32s_20_core.sv` | 197, 206 | operand select enum |
-| `cdriscv_32s_20_core.sv` | 479 | writeback select enum |
-| `cdriscv_32s_20_lsu.sv` | 80, 142 | `addr[1:0]`, all four values listed |
-| `cdriscv_32s_20_multdiv.sv` | 195 | mul/div operation enum |
+| file | line | selector | spare encodings? |
+|------|------|----------|------------------|
+| `cdriscv_32s_20_alu.sv` | 163 | ALU operation enum, **6 bits, 38 of 64 used** | yes — see below |
+| `cdriscv_32s_20_decoder.sv` | 324 | OP-IMM `funct3`, all eight values listed | no |
+| `cdriscv_32s_20_decompress.sv` | 193 | `instr[6:5]`, all four listed (c.sub/xor/or/and) | no |
+| `cdriscv_32s_20_decompress.sv` | 220 | `instr[11:10]`, all four listed | no |
+| `cdriscv_32s_20_decompress.sv` | 226 | quadrant-01 `funct3`, all eight listed | no |
+| `cdriscv_32s_20_core.sv` | 333, 344 | operand select enums, 3 of 4 values used | yes — see below |
+| `cdriscv_32s_20_core.sv` | 745 | writeback select enum, all four listed | no |
+| `cdriscv_32s_20_lsu.sv` | 81, 143 | `addr[1:0]`, all four values listed | no |
+| `cdriscv_32s_20_multdiv.sv` | 196 | mul/div operation enum, all eight listed | no |
+| `cdriscv_32s_20_pmp.sv` | 107 | `pmpcfg.A`, all four values listed (OFF/TOR/NA4/NAPOT) | no |
+| `cdriscv_32s_20_pmp.sv` | 116 | access type enum, 3 of 4 values used | yes — see below |
 
-The LSU pair is the clearest case: `unique case (addr_i[1:0])` lists
-`2'b00` through `2'b11`, so the default is unreachable by construction
-— a two-bit selector has no fifth value. The others are enums whose
-every member has an arm.
+The full-selector rows are unreachable by construction — a two-bit
+selector has no fifth value. The three rows marked **yes** are the ones
+the 2026-09-01 review had to re-argue, because the original claim ("no
+spare encodings") went false when `alu_op_e` widened to 6 bits for the
+bitmanip operators and the operand/access enums were counted honestly:
+
+* `alu_op_o` is driven only by the decoder, which assigns only enum
+  members (the equivalence bench `block-decoder-equiv` pins every
+  control word against variant 1); in ST_SEQ the core forces `ALU_ADD`.
+* `op_a_sel_o` / `op_b_sel_o`: same driver, same argument.
+* `req_type_i` of the PMP checker is a constant per instance
+  (`PMP_ACC_EXEC` on the fetch port, READ/WRITE on the data port).
+
+So reaching any of these arms requires an upset in a control register,
+not a stimulus — which is W2a's argument in combinational form, and is
+the fault-injection campaign's territory, not the functional tests'.
 
 These are cheap to keep and give a defined output for an undefined
-selector, which is the same argument as W2a in combinational form.
+selector.
 
 ### W2c — WITHDRAWN (2026-08-21)
 
@@ -234,6 +280,98 @@ guess in five steps. Writing the invariant down as a property, rather
 than asserting it in prose, is what turned an assumption into either a
 proof or a counterexample — and here it produced one of each,
 depending on whether the core's own discipline is assumed.
+
+## W3 — the E2E checker's detection cannot fire in a fault-free simulation (2026-09-01)
+
+**No line is waived here** — `cdriscv_32s_20_e2e.sv` and
+`cdriscv_32s_20_e2e_link.sv` are at 100 % line coverage, because their
+compare logic runs on every transfer. What is waived is the
+*situation*: `rd_err_o` / `wr_err_o` asserting because the check bits
+genuinely disagree, and FLT_E2E latching from that.
+
+**Reached when** the interconnect corrupts payload or address between
+an E2E master and slave endpoint.
+
+**Why simulation cannot reach it.** The check bits are generated and
+checked over the same wires by the same proven (39,32) Hsiao code; in a
+fault-free netlist there is nothing on the path to disagree with. This
+is not a gap in the stimulus — it is the definition of the mechanism.
+
+**What covers it instead.**
+
+* The *detection* is proven by `block-e2e-link` (11 286 checks, mutants
+  8/8, `scripts/mutate_e2e_link.py`), which puts corruptible wires
+  between the endpoints and drives every deterministic fault class.
+* The *latching and reaction* path behind FLT_E2E is covered in the
+  real subsystem: `safety_test` check 10 pulses bit 14 through the
+  safety controller's INJECT register and requires STATUS[14] to latch
+  and W1C-clear (functional point `cp_flt_e2e`, hit).
+
+**Status**: permanent, re-review only if the E2E fold or the fault
+wiring changes.
+
+## W4 — `cdriscv_32s_20_core.sv:523-526`, fetch-target misalignment trap (2026-09-01)
+
+```systemverilog
+end else if (instr_misalign) begin
+  exc_valid = 1'b1;
+  exc_cause = EXC_INSTR_MISALIGN;
+  exc_tval  = target_pc;
+end
+```
+
+**Reached when** a control transfer targets an odd byte address
+(`target_pc[0]` set — with the C extension the halfword-misaligned
+case, bit 1, is legal by definition).
+
+**Why simulation cannot reach it.** JALR clears bit 0 in hardware, as
+the spec requires; branch and JAL immediates are even multiples of two
+by construction; `mepc` writes have bit 0 cleared in the CSR file; the
+trap vector is aligned. No instruction this core can execute produces
+an odd target. `trap_test` section 11 documents exactly this and tests
+the property in the only honest direction left: it jumps to a
+halfword-aligned target and requires that it executes and does NOT trap
+(checks 12 and 30).
+
+**These lines are not dead code.** They are the machine-mode trap the
+spec mandates for a misaligned fetch, and they become live the moment a
+variant drops the C extension (misa here hard-wires C, so no CSR write
+can re-enable the case). Removing them would couple trap correctness
+to the decoder's immediate construction.
+
+**Status**: permanent while C is hard-wired; re-review if misa gains a
+writable C bit or a non-C variant forks from this RTL.
+
+## W5 — `cdriscv_32s_20_multdiv.sv:193`, the multiply result arms are dead in this integration (2026-09-01)
+
+```systemverilog
+MD_MULH, MD_MULHSU,
+MD_MULHU:               result_o = product_corr[63:32];
+```
+
+**Reached when** `multdiv` finishes a MULH/MULHSU/MULHU operation.
+
+**Why simulation cannot reach it.** Variant 2 added the single-cycle
+`cdriscv_32s_20_mult` and the core routes **every** multiply to it
+(`start_md` fires only for `!md_is_mul`); `multdiv` now only ever sees
+divide and remainder operations, so its multiply datapath — the
+iterative half the FSM still implements — is unreachable from the
+instruction set. (Its `MD_MUL` arm still shows as covered, but only
+because `op_q` resets to that encoding and the arm is what the idle
+mux evaluates; that is an artefact, not evidence.)
+
+**What covers it instead.** `block-multdiv` drives the module
+standalone through all eight operations (mutation tested), so the arm
+is verified even though the subsystem cannot select it.
+
+**This is a finding as much as a waiver** — recorded in
+verification_findings_20.md §14: the module carries a verified but
+disconnected feature, which costs area and a latent-fault surface. The
+honest fixes are to parameterise the multiply path out of `multdiv` or
+to accept and record the dead logic; silently counting the line as
+covered is not one of them.
+
+**Status**: has a to-do — revisit when `multdiv` is next touched.
 
 ## Format for future entries
 

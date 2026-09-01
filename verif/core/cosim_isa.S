@@ -218,6 +218,18 @@ _start:
     cm.mva01s s0, s0                  /* equal fields: legal for mva01s */
     cm.pop  {ra}, 32
 
+    /* Zca/Zcb ALU forms the random generator never emits explicitly:
+       the c.xor arm and the Zcb unary c.zext.b / c.not expansions.
+       Explicit c.* mnemonics so the assembler cannot silently pick the
+       32-bit form; results flow into the retire stream Spike checks. */
+    li    a0, 0x0f0f1234
+    li    a1, 0x00ff00ff
+    c.xor a0, a1
+    c.mv  s0, a0
+    c.zext.b s0
+    c.not a1
+    c.add a0, a1
+
     /* popret / popretz through real call frames */
     jal   ra, zcmp_leaf
     jal   ra, zcmp_leaf_z
