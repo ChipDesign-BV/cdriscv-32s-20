@@ -166,16 +166,33 @@ Largest first.
    Comparable to variant 1's objective: 1 008 435 332 instructions over
    27 500 programs.
 
-2. **The architectural suite runs and passes** — 114 of 114 selected
-   tests, including all 29 `rv32i_m/B` tests, against Spike
-   (`make riscof`). Two caveats keep this short of variant 1's O1 claim:
-   the suite is a vintage release, and 43 PMP tests are dropped by
-   selection rather than by result — the vintage suite selects them on
-   any RV32 I+Zicsr core. (When this was written the checker was not in
-   the access path; it now gates data accesses and instruction fetch,
-   see item 5 of §3, but the dropped tests have not been revisited and
-   the claim here is still only about the 114 that ran.) Zcb still has no architectural tests upstream at all
-   and will need directed tests.
+2. **The architectural suite runs and passes on the current RTL** —
+   **143 of 143** selected tests against Spike (`make riscof`,
+   2026-09-01, revision with Zcmp): the C-extension tests joined the
+   selection and all pass.
+
+   Getting there was itself a finding. The re-run first reported **8
+   failures — all of them because the DUT is right**: the ISA yaml the
+   test selection reads still said `RV32IM...` without C, so the suite
+   selected the `misalign-*` tests, which are valid only at IALIGN=32,
+   and skipped `rv32i_m/C` entirely. A halfword branch target is legal
+   on this core, the expected trap never comes, and the test fails
+   against the healthy half of the system. Declaring C deselected those
+   8 and selected the C tests: 114 → 143. Same shape as the misa guard
+   in §12 of [verification_findings_20.md](verification_findings_20.md):
+   a selection input went stale and quietly shaped which tests ran.
+
+   One layer deeper: the yaml's `misa` reset value now differs from the
+   RTL's by exactly one bit (`misa.B`), because the installed
+   riscv-config's ISA regex predates the ratified B letter and cannot
+   accept it. The divergence is confined to the yaml and documented in
+   place; nothing in the suite reads misa's reset value from the DUT.
+
+   Remaining caveats: the suite is a vintage release; 43 PMP tests are
+   still dropped by selection rather than by result and have not been
+   revisited now that PMP gates both data and fetch; Zcb and Zcmp have
+   no architectural tests upstream — their coverage is the directed
+   tests and the 312-sequence block bench.
 3. **Zca/Zcb are in the fetch path.** `if_align` sits between the
    word-level prefetcher and decode; `misa` now reports C. The core
    changed with it: a compressed jump links PC+2 rather than PC+4,

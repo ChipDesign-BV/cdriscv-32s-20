@@ -1,10 +1,13 @@
 # RISCOF — architectural test suite (objective O1)
 
-**Status: producing a result — 114 of 114 selected tests pass**, including
-all 29 `rv32i_m/B` tests, against Spike as the reference. Read the
-caveats section before quoting anything from here; in particular the
-suite is a vintage release and 43 PMP tests are dropped by selection
-rather than by result.
+**Status: producing a result — 143 of 143 selected tests pass**
+(2026-09-01, RTL with C and Zcmp), including all 29 `rv32i_m/B` and the
+`rv32i_m/C` tests, against Spike as the reference. Read the caveats
+section before quoting anything from here; in particular the suite is a
+vintage release and 43 PMP tests are dropped by selection rather than
+by result. The `misalign-*` tests are now *correctly* deselected: with
+C implemented, IALIGN is 16 and the traps they expect cannot occur —
+running them was a staleness bug in the ISA yaml, not evidence.
 
 ## What this is
 

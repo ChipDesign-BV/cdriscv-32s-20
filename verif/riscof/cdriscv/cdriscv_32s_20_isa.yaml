@@ -1,11 +1,17 @@
 hart_ids: [0]
 hart0:
-  ISA: RV32IMZicsr_Zifencei_Zba_Zbb_Zbs
+  ISA: RV32IMCZicsr_Zifencei_Zba_Zbb_Zbs
   physical_addr_sz: 32
   User_Spec_Version: '2.3'
   supported_xlen: [32]
   misa:
-   reset-val: 0x40001100
+   # 0x40001104 here vs 0x40001106 in the RTL: the difference is ONE bit,
+   # misa.B.  The RTL sets it (bitmanip is implemented and misa reports
+   # what is implemented); the installed riscv-config's ISA regex predates
+   # the ratified B letter ([ACDFGHJLMNPQSTUV] -- no B), so declaring it
+   # here fails validation.  Nothing in the suite reads misa's reset
+   # value from the DUT, so the divergence is confined to this file.
+   reset-val: 0x40001104
    rv32:
      accessible: true
      mxl:
@@ -23,7 +29,7 @@ hart0:
            warl:
               dependency_fields: []
               legal:
-                - extensions[25:0] bitmask [0x0001100, 0x0000000]
+                - extensions[25:0] bitmask [0x0001104, 0x0000000]
               wr_illegal:
                 - Unchanged
  
