@@ -9,20 +9,21 @@
 > labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what actually holds here.
 
-> **Status: not qualified for safety-critical use, and in this variant
-> not yet verified to a gate at all.**
+> **Status: not qualified for safety-critical use.** The evidence base,
+> however, is now this variant's own: O1 (143/143), O2 (10⁹
+> co-simulated instructions), O3, O5, O6 (line 100 % with reviewed
+> waivers), O7 (functional 100 % of the current model, toggle ≥ 95 %)
+> and O9 are all measured on this RTL. Eight fault-injection campaigns
+> feed an FMEDA computed on this design — **SPFM 99.50 %, LFM 92.66 %,
+> residual 1.22 FIT** ([fmeda.md](fmeda.md), 2026-09-02) — with two of
+> its findings already fed back into the RTL and re-measured closed
+> (E2E byte-enable fold; config parity over the PMP arrays).
 >
-> This document is a *draft outline* of a safety manual. The mechanisms
-> it describes are real and are implemented here; the *evidence* behind
-> them is not. In variant 1 the O1–O7 gate is met (2026-08-24),
-> fault-injection campaigns have been run, diagnostic coverage has been
-> measured, and an FMEDA exists — SPFM 99.6 %, LFM 91.4 % (V44,
-> [fmeda.md](fmeda.md)). **Every one of those figures was measured on
-> variant 1's netlist and none has been reproduced here**, where the
-> core carries a wider ISA, a PMP checker and a JTAG port that variant 1
-> does not have. Coverage, fault injection and the FMEDA are listed as
-> not re-run in [variant_status.md](variant_status.md), and that is the
-> status that governs this variant.
+> What keeps the disclaimer in force: the base failure rates are
+> **assumed**, not foundry data; O8 (gate-level) awaits the next
+> hardening's netlist, and the FMEDA's populations partly rest on RTL
+> elaboration until then; there is no mission profile, no common-cause
+> analysis for the lockstep pair, and no safety-case owner.
 >
 > None of that is certification. The FMEDA rests on **assumed** base
 > failure rates, because no foundry FIT data exists for this design;

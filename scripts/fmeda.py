@@ -107,15 +107,14 @@ ELEMENTS = [
      "self-checking by construction (a delay-line upset causes a "
      "mismatch; target 19 re-measured on this RTL); residual: faults "
      "forcing permanent agreement"),
-    ("PMP arrays (both cores)", 608, 0.00, 0.53,  0.53,  0.60,
-     "NO PARITY (CSR guard folds mtvec only) -- measured finding. "
-     "fi-pmp sweep: upsets whose region is live diverge the cores and "
-     "lockstep catches 100 % of them; upsets in unexercised regions "
-     "are LATENT, 0 detected.  dc is the measured live fraction under "
-     "a workload that keeps one locked region hot; a mission profile "
-     "using more regions moves it either way.  Permanent: argued from "
-     "the same mechanism (a stuck array bit in one core diverges on "
-     "first relevant access)"),
+    ("PMP arrays (both cores)", 608, 0.00, 1.00,  0.99,  0.99,
+     "CONFIG PARITY, extended over pmpcfg/pmpaddr 2026-09-02 after "
+     "the first sweep measured 90.8 % latent without it.  Re-measured "
+     "fi-pmp: 448/448 upsets detected at exactly 2 cycles, live and "
+     "unexercised regions alike -- parity does not care whether the "
+     "region is in use.  MBU/permanent held one notch under the "
+     "single-bit measurement: an even-width MBU inside one parity "
+     "word is the residual, as for every parity-covered element"),
     ("TCM control+ECC logic",  108, 0.30, 0.95,  0.95,  0.95,
      "ECC datapath faults surface as detected errors or bus faults; "
      "BIST covers permanent"),
@@ -327,17 +326,18 @@ the stated assumptions, with the caveats of section 1.
   remains outside the compare vector (V4-F3, inherited and still open
   in this variant).
 * **E2E links** (systematic sweep, every wire bit): {e2e_det} of
-  {e2e_tot} injections on covered wires latched `FLT_E2E`, **0
-  escapes**; the **byte-enable wires escaped {be_esc}/{be_tot}** --
-  they are outside the {{data, addr}} fold, exactly as documented at
-  integration, and stand as measured interconnect residual.
-* **PMP arrays**: **not parity-covered** (the CSR guard folds mtvec
-  only) -- this is the campaign's headline finding. Upsets in the
-  region the workload keeps live: 100 % caught by lockstep (the cores
-  diverge). Upsets in unexercised regions: **0 % detected, latent**.
-  The measured dc of {pmp_dc:.2f} is a property of the workload's
-  region usage as much as of the design; the FMEDA carries the latent
-  remainder in the LFM.
+  {e2e_tot} injections whose flip a live transfer consumed latched
+  `FLT_E2E`, the rest architecturally silent -- **0 escapes,
+  including the byte enables** ({be_det}/{be_tot} detected). The
+  first sweep measured 10 byte-enable SDCs; folding be into the check
+  (2026-09-02) closed the campaign's entire SDC budget, and this
+  sweep is the re-measurement.
+* **PMP arrays**: **config parity**, extended over pmpcfg/pmpaddr
+  after the first sweep's headline finding (90.8 % latent with no
+  parity). Re-measured: **448/448 detected at exactly 2 cycles**,
+  independent of whether the flipped region is in use. The lockstep
+  divergence path remains as the second, slower observer for the
+  live-region subset.
 * **CLINT**: mtimecmp/msip/prescaler 100 % via its config parity;
   **mtime 0 % by design** (hardware-updated, correctly outside the
   fold). The bounding argument for mtime is the **windowed watchdog**
@@ -407,14 +407,16 @@ def main():
     if args.md:
         pmp_row = next(r for r in rows if r[0].startswith("PMP"))
         doc = DOC_TEMPLATE.format(
-            date="2026-09-01",
+            date="2026-09-02",
             ff_netlist=TOTAL_FF_NETLIST, sram_bits=SRAM_BITS,
             cells=TOTAL_CELLS, insts=TOTAL_INSTANCES, die=DIE_MM2,
             ff_clint=FF_CLINT, ff_e2e=FF_E2E, ff_zcmp=FF_ZCMP_SEQ,
             perm="%.1f" % PERM_FIT_TOTAL,
             result=text, spfm=100 * spfm, lfm=100 * lfm, spf=spf,
-            zcmp_det="ZCMP_DET", e2e_det="E2E_DET", e2e_tot="E2E_TOT",
-            be_esc="BE_ESC", be_tot="BE_TOT", pmp_dc=0.53,
+            # from build/fi_campaign_zcmp.txt / _e2e.txt (2026-09-02,
+            # post be-fold, post pmp-parity RTL)
+            zcmp_det=211, e2e_det=359, e2e_tot=400,
+            be_det=32, be_tot=32,
         )
         with open(args.md, "w") as f:
             f.write(doc)
