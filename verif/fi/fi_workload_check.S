@@ -225,6 +225,13 @@ cfg_bad:
     sw   t1, 0(t0)
 4:  j    4b
 
+    /* .align 2: with the C extension the code above compiles to a mix
+     * of 16- and 32-bit encodings, so this label is no longer naturally
+     * word aligned -- and mtvec's WARL write masks bit 1
+     * (csr.sv: {wdata[31:2],1'b0,wdata[0]}).  Unaligned, every trap
+     * enters two bytes before the handler.  Found because workload D's
+     * fault-free run failed its own mtvec read-back. */
+    .align 2
 trap_handler:
     li   t0, EXIT_REG
     li   t1, 0xdead0000

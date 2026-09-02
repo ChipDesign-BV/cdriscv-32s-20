@@ -156,7 +156,20 @@ module tb_fi;
   bit          injected, arm;
   int unsigned idx, b32, b39;
   logic [31:0] status_at_end;
-  logic [31:0] cfg_safety, cfg_wdog, cfg_csr;
+  logic [31:0] cfg_safety, cfg_wdog, cfg_csr, cfg_pmp;
+
+  // Deferred (traffic-qualified) injections: targets 32-38 must land on
+  // a cycle where their state is live -- a Zcmp sequence in flight, a
+  // TCM beat on the wires.  Each case arm below only *arms* one of
+  // these; the blocks that follow land the fault on the first
+  // qualifying cycle and only then set `injected`, so a campaign whose
+  // window never met the qualifier reports inj=0 (not-injected) instead
+  // of a fault that silently never happened.
+  bit          seq_arm, seqenc_arm;
+  bit          e2e_wr_arm, e2e_rda_arm, e2e_rsp_arm, e2e_ir_arm, e2e_be_arm;
+  bit          e2e_forced;
+  int unsigned e2e_kind;         // which wires are forced, for release
+  logic [31:0] fsample;          // sampled value under the force
 
   initial begin
     fetch_enable = 1'b0;
@@ -219,9 +232,21 @@ module tb_fi;
                    ^ {16'b0, dut.u_irq_ctrl.enable_q}
                    ^ dut.u_timer.mtimecmp_q[31:0]
                    ^ {24'b0, dut.u_ams.chmask_q};
-        $display("FI target=%0d bit=%0d cycle=%0d exit=%08x golden=%08x exited=%0d status=%08x inj=%0d cfg=%08x_%08x_%08x",
+        // The PMP arrays are protection state with NO parity guard
+        // (u_cfg_par in the CSR file folds mtvec only), so a fold of
+        // them is the only way this bench can tell "the workload
+        // passed" from "the workload passed and a protection region
+        // quietly changed underneath it".  Main core only: that is
+        // where the deposits land.
+        cfg_pmp = 32'b0;
+        for (int pi = 0; pi < 8; pi++) begin
+          cfg_pmp = cfg_pmp
+                  ^ {24'b0, dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[pi]}
+                  ^ dut.g_lockstep.u_core.u_core_main.u_csr.pmpaddr_q[pi];
+        end
+        $display("FI target=%0d bit=%0d cycle=%0d exit=%08x golden=%08x exited=%0d status=%08x inj=%0d cfg=%08x_%08x_%08x_%08x",
                  target, bitpos, injcycle, exit_code, golden, exit_seen, status_at_end,
-                 injected, cfg_safety, cfg_wdog, cfg_csr);
+                 injected, cfg_safety, cfg_wdog, cfg_csr, cfg_pmp);
         $display("FIRFW %0d %0d", rfw_mismatch, det_cycle);
         $finish;
       end
@@ -271,7 +296,7 @@ module tb_fi;
         idx   = bitpos % 31;
         b32   = bitpos % 32;
         b39   = bitpos % 39;
-        case (target % 27)
+        case (target)
           0: dut.g_lockstep.u_core.u_core_main.u_regfile.rf_q[idx + 1] =
              dut.g_lockstep.u_core.u_core_main.u_regfile.rf_q[idx + 1] ^ (32'b1 << b32);
           1: dut.g_lockstep.u_core.u_core_main.u_if.buf_rdata_q[bitpos % 2] =
@@ -371,6 +396,79 @@ module tb_fi;
           // any of five sample cycles for exactly that reason.
           26: wpath_arm = 1'b1;
 
+          // ---- the CLINT (the architectural machine timer now) ------
+          // mtime is hardware-updated and correctly NOT in the parity
+          // fold (a self-updating field would false-flag) -- an upset
+          // there is undetected by design and the FMEDA has to carry
+          // that; mtimecmp/msip/prescaler ARE in the CLINT's u_cfg_par
+          // fold, so those must report as configuration parity.
+          27: dut.u_clint.mtime_q[bitpos % 64] =
+              ~dut.u_clint.mtime_q[bitpos % 64];
+          28: dut.u_clint.mtimecmp_q[bitpos % 64] =
+              ~dut.u_clint.mtimecmp_q[bitpos % 64];
+          29: if ((bitpos % 17) == 0)
+                dut.u_clint.msip_q = ~dut.u_clint.msip_q;
+              else
+                dut.u_clint.presc_q[(bitpos % 17) - 1] =
+                  ~dut.u_clint.presc_q[(bitpos % 17) - 1];
+
+          // ---- the PMP arrays (main core only) ----------------------
+          // Deliberately in ONE core: the checker core keeps the intact
+          // configuration, so any upset whose effect ever reaches an
+          // access decision diverges the cores and lockstep must catch
+          // it.  An upset whose region the workload never exercises
+          // has no observer at all -- the CSR file's parity covers
+          // mtvec, not these -- and lands as `latent` through the
+          // cfg_pmp fold above.  That latent count is a finding about
+          // the design, not about the bench.
+          30: dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[(bitpos / 8) % 8] =
+              dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[(bitpos / 8) % 8]
+              ^ (8'b1 << (bitpos % 8));
+          31: dut.g_lockstep.u_core.u_core_main.u_csr.pmpaddr_q[(bitpos / 32) % 8] =
+              dut.g_lockstep.u_core.u_core_main.u_csr.pmpaddr_q[(bitpos / 32) % 8]
+              ^ (32'b1 << b32);
+
+          // ---- Zcmp sequencer state, mid-sequence -------------------
+          // Landing these outside ST_SEQ would deposit into dead state
+          // and flatter nothing but the silent count, so they defer to
+          // the first cycle the main core is actually walking a
+          // sequence (blocks below).
+          32: begin seq_arm = 1'b1;    injected = 1'b0; end
+          33: begin seqenc_arm = 1'b1; injected = 1'b0; end
+
+          // ---- E2E: the wires between the link endpoints ------------
+          // Forced for exactly one clock on the first qualifying beat:
+          // a transient on the interconnect, which is the fault E2E
+          // exists to catch.  Deferred like the Zcmp targets.
+          34: begin e2e_wr_arm = 1'b1;  injected = 1'b0; end
+          35: begin e2e_rda_arm = 1'b1; injected = 1'b0; end
+          36: begin e2e_rsp_arm = 1'b1; injected = 1'b0; end
+          37: begin e2e_ir_arm = 1'b1;  injected = 1'b0; end
+          38: begin e2e_be_arm = 1'b1;  injected = 1'b0; end
+
+          // ---- JTAG / debug observation path ------------------------
+          // The window is read-only by construction: nothing here can
+          // reach the core, the bus or the memories.  The TAP itself
+          // sits in reset while trst_ni is low (as it is in-mission
+          // with the port parked), so its tck-domain state is pinned
+          // and is excluded.  These deposits back the structural
+          // argument with a measurement.
+          39: case (bitpos % 8)
+                0: dut.u_dbg_bridge.busy_q  = ~dut.u_dbg_bridge.busy_q;
+                1: dut.u_dbg_bridge.we_q    = ~dut.u_dbg_bridge.we_q;
+                2: dut.u_dbg_win.retire_seen_q = ~dut.u_dbg_win.retire_seen_q;
+                3: dut.u_dbg_bridge.addr_q[(bitpos / 8) % 32] =
+                   ~dut.u_dbg_bridge.addr_q[(bitpos / 8) % 32];
+                4: dut.u_dbg_bridge.wdata_q[(bitpos / 8) % 32] =
+                   ~dut.u_dbg_bridge.wdata_q[(bitpos / 8) % 32];
+                5: dut.u_dbg_bridge.rdata_q[(bitpos / 8) % 32] =
+                   ~dut.u_dbg_bridge.rdata_q[(bitpos / 8) % 32];
+                6: dut.u_dbg_win.last_pc_q[(bitpos / 8) % 32] =
+                   ~dut.u_dbg_win.last_pc_q[(bitpos / 8) % 32];
+                7: dut.u_dbg_win.last_insn_q[(bitpos / 8) % 32] =
+                   ~dut.u_dbg_win.last_insn_q[(bitpos / 8) % 32];
+              endcase
+
           default: ;
         endcase
       if (trace_on && (target % 9) == 3)
@@ -378,6 +476,140 @@ module tb_fi;
       if (trace_on && (target % 9) == 4)
         $display("TRACE mie after =%0d",
                  dut.g_lockstep.u_core.u_core_main.u_csr.mstatus_mie_q);
+    end
+  end
+
+  // ------------------------------------------------------------------
+  // Deferred landings.  Each block waits for its qualifier, applies
+  // the fault once, and only then declares `injected`.
+  // ------------------------------------------------------------------
+
+  // Zcmp: deposit into the sequencer's own state while a sequence is
+  // in flight in the MAIN core.  The checker core walks the intact
+  // sequence LockstepDly cycles later, so every consequence of the
+  // deposit is a compare mismatch waiting to happen.
+  always @(negedge clk) begin
+    if (rst_n && seq_arm && dut.g_lockstep.u_core.u_core_main.seq_active) begin
+      seq_arm  = 1'b0;
+      injected = 1'b1;
+      if ((bitpos % 5) == 4)
+        dut.g_lockstep.u_core.u_core_main.seq_pend_q =
+          ~dut.g_lockstep.u_core.u_core_main.seq_pend_q;
+      else
+        dut.g_lockstep.u_core.u_core_main.seq_idx_q[bitpos % 4] =
+          ~dut.g_lockstep.u_core.u_core_main.seq_idx_q[bitpos % 4];
+    end
+    // The held encoding: the fetch buffer word the step table decodes,
+    // flipped mid-sequence.  The same storage as target 1, but timed
+    // so the corruption changes the remaining steps of a sequence that
+    // is already retiring beats.
+    if (rst_n && seqenc_arm && dut.g_lockstep.u_core.u_core_main.seq_active) begin
+      seqenc_arm = 1'b0;
+      injected   = 1'b1;
+      dut.g_lockstep.u_core.u_core_main.u_if.buf_rdata_q[bitpos % 2] =
+        dut.g_lockstep.u_core.u_core_main.u_if.buf_rdata_q[bitpos % 2]
+        ^ (32'b1 << ((bitpos / 2) % 32));
+    end
+  end
+
+  // E2E: force one wire of the protected link for exactly one clock.
+  // The force uses a SAMPLED value, not a self-referencing expression
+  // (force a = a ^ m reads back the forced net and is a zero-delay
+  // loop); the wires are stable between the edges, so the sampled
+  // constant is exact for the cycle that matters, and the release on
+  // the next negedge ends the transient after the posedge at which
+  // the TCM, the endpoints and the safety controller all sampled it.
+  //
+  // Bit maps (documented here because the sweep is the point):
+  //   34  D-TCM write request:  [31:0] dtcm_wdata, [63:32] dtcm_addr,
+  //       [70:64] data_wr_chk (the carried check bits), [71] dtcm_we
+  //   35  D-TCM read request:   [31:0] dtcm_addr
+  //   36  data read response:   [31:0] data_rdata, [38:32] data_rd_chk,
+  //       [39] data_rd_chk_valid (the carried access-type)
+  //   37  fetch response:       [31:0] instr_rdata, [38:32] itcm_rd_chk,
+  //       [39] itcm_rd_chk_valid
+  //   38  D-TCM byte enables:   [3:0] dtcm_be -- the DOCUMENTED gap in
+  //       the {data, addr} fold; this target exists to measure the
+  //       escape, not to claim coverage
+  always @(negedge clk) begin
+    if (e2e_forced) begin
+      case (e2e_kind)
+        0: release dut.dtcm_wdata;
+        1: release dut.dtcm_addr;
+        2: release dut.data_wr_chk;
+        3: release dut.dtcm_we;
+        4: release dut.data_rdata;
+        5: release dut.data_rd_chk;
+        6: release dut.data_rd_chk_valid;
+        7: release dut.instr_rdata;
+        8: release dut.itcm_rd_chk;
+        9: release dut.itcm_rd_chk_valid;
+       10: release dut.dtcm_be;
+        default: ;
+      endcase
+      e2e_forced = 1'b0;
+    end else if (rst_n && e2e_wr_arm &&
+                 dut.dtcm_req && dut.dtcm_gnt && dut.dtcm_we) begin
+      e2e_wr_arm = 1'b0;
+      injected   = 1'b1;
+      e2e_forced = 1'b1;
+      if ((bitpos % 72) < 32) begin
+        e2e_kind = 0; fsample = dut.dtcm_wdata;
+        force dut.dtcm_wdata = fsample ^ (32'b1 << (bitpos % 72));
+      end else if ((bitpos % 72) < 64) begin
+        e2e_kind = 1; fsample = dut.dtcm_addr;
+        force dut.dtcm_addr = fsample ^ (32'b1 << ((bitpos % 72) - 32));
+      end else if ((bitpos % 72) < 71) begin
+        e2e_kind = 2; fsample = {25'b0, dut.data_wr_chk};
+        force dut.data_wr_chk = fsample[6:0] ^ (7'b1 << ((bitpos % 72) - 64));
+      end else begin
+        e2e_kind = 3;
+        force dut.dtcm_we = 1'b0;   // the write beat delivered as a read
+      end
+    end else if (rst_n && e2e_rda_arm &&
+                 dut.dtcm_req && dut.dtcm_gnt && !dut.dtcm_we) begin
+      e2e_rda_arm = 1'b0;
+      injected    = 1'b1;
+      e2e_forced  = 1'b1;
+      e2e_kind = 1; fsample = dut.dtcm_addr;
+      force dut.dtcm_addr = fsample ^ (32'b1 << b32);
+    end else if (rst_n && e2e_rsp_arm && dut.data_rvalid &&
+                 (dut.data_resp_itcm || dut.data_resp_dtcm)) begin
+      e2e_rsp_arm = 1'b0;
+      injected    = 1'b1;
+      e2e_forced  = 1'b1;
+      if ((bitpos % 40) < 32) begin
+        e2e_kind = 4; fsample = dut.data_rdata;
+        force dut.data_rdata = fsample ^ (32'b1 << (bitpos % 40));
+      end else if ((bitpos % 40) < 39) begin
+        e2e_kind = 5; fsample = {25'b0, dut.data_rd_chk};
+        force dut.data_rd_chk = fsample[6:0] ^ (7'b1 << ((bitpos % 40) - 32));
+      end else begin
+        e2e_kind = 6; fsample = {31'b0, dut.data_rd_chk_valid};
+        force dut.data_rd_chk_valid = ~fsample[0];
+      end
+    end else if (rst_n && e2e_ir_arm && dut.instr_rvalid &&
+                 dut.instr_resp_itcm) begin
+      e2e_ir_arm = 1'b0;
+      injected   = 1'b1;
+      e2e_forced = 1'b1;
+      if ((bitpos % 40) < 32) begin
+        e2e_kind = 7; fsample = dut.instr_rdata;
+        force dut.instr_rdata = fsample ^ (32'b1 << (bitpos % 40));
+      end else if ((bitpos % 40) < 39) begin
+        e2e_kind = 8; fsample = {25'b0, dut.itcm_rd_chk};
+        force dut.itcm_rd_chk = fsample[6:0] ^ (7'b1 << ((bitpos % 40) - 32));
+      end else begin
+        e2e_kind = 9; fsample = {31'b0, dut.itcm_rd_chk_valid};
+        force dut.itcm_rd_chk_valid = ~fsample[0];
+      end
+    end else if (rst_n && e2e_be_arm &&
+                 dut.dtcm_req && dut.dtcm_gnt && dut.dtcm_we) begin
+      e2e_be_arm = 1'b0;
+      injected   = 1'b1;
+      e2e_forced = 1'b1;
+      e2e_kind = 10; fsample = {28'b0, dut.dtcm_be};
+      force dut.dtcm_be = fsample[3:0] ^ (4'b1 << (bitpos % 4));
     end
   end
 

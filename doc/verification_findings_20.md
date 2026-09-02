@@ -681,3 +681,47 @@ shape as the `vvp | tee` pipefail finding that opens the Makefile,
 one layer up. The two runs added this round (pmp, zcmp) capture the
 log and grep the verdict; retrofitting the same guard to the
 pre-existing runs is left open and noted in variant_status.md §3.9.
+
+## 18. Fault injection re-measured: what each new mechanism is worth
+
+Eight campaigns on the current RTL (workloads A–E, systematic sweeps,
+`build/fi_campaign*.txt`, 2026-09-01/02). The three inherited campaigns
+first — re-run and passing, with E2E now appearing as a *detector* in
+tables where the old runs classified interconnect faults as escapes.
+Then the new mechanisms, each measured rather than asserted:
+
+**E2E (400 SEUs, every wire bit of every protected link):** zero escapes
+on the folded wires — 327 detected (median 4 cycles, worst 21), the rest
+architecturally silent. **All 10 SDC cases are byte-enable flips**
+(10 of 32 `be` injections), the wire the fold deliberately excludes.
+The documented residual from the E2E commit is now a measured number,
+and it is the whole SDC budget of the campaign.
+
+**PMP arrays (448 SEUs under live denials): 90.8 % latent.** Only 41
+flips diverged the cores inside the workload window (lockstep, 25–48
+cycles); the other 407 silently altered protection nothing consumed
+yet. The arrays have no parity — the one quasi-static configuration in
+the design that config parity does not cover. This is the number that
+decides the pending change: extend `cfg_parity` over pmpcfg/pmpaddr.
+
+**CLINT (435 SEUs): the parity boundary is exactly right, and exactly
+visible.** Every `mtimecmp`/`msip`/prescaler flip was caught by the
+CLINT's config parity in 2 cycles flat — 243/243. Every `mtime` flip
+was not: 25 silent, 35 SDC, 132 hang, no mechanism fired. `mtime` is a
+free-running counter and cannot carry quasi-static parity by
+construction. In-bench those are undetected; at system level the
+windowed watchdog — its own timebase, independent of the CLINT — bounds
+both the hang (missed service) and the late-MTIP case, which is AoU-4's
+job. The FMEDA will carry that as an explicitly AoU-dependent
+classification, not as bench-measured detection.
+
+**Zcmp sequencer (248 SEUs): zero escapes** — 211 caught by lockstep,
+37 architecturally silent. **Debug blocks (64 SEUs): 64/64 silent** —
+the read-only window cannot corrupt the core, now backed by injection
+rather than argument alone.
+
+The FMEDA is deliberately NOT regenerated from these numbers yet: two
+of the measurements (the `be` gap, the PMP latency class) justify RTL
+changes already queued, and computing SPFM/LFM from RTL about to change
+would repeat the stale-input mistake this log keeps cataloguing. One
+FMEDA, on the final RTL, after the affected campaigns re-run.

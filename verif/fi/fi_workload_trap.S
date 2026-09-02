@@ -32,12 +32,16 @@
 
     .equ EXIT_REG,     0x20000f00
     .equ SCRATCH,      0x10000800
-    .equ TIMER,        0x20000200
-    .equ MTIME_LO,     0x00
-    .equ MTIMECMP_LO,  0x08
-    .equ MTIMECMP_HI,  0x0c
-    .equ TMR_CTRL,     0x10
-    .equ TMR_PRESCALE, 0x14
+    /* The architectural machine timer is the CLINT now (standard map
+     * at 0x0200_0000); the APB timer at 0x2000_0200 no longer drives
+     * MTIP -- its interrupt is irq_ctrl source 16.  The first re-run
+     * of this workload on variant 2 still armed the APB timer, took
+     * zero interrupts, and mstatus.MIE was dead state all over again:
+     * exactly the failure mode this workload exists to avoid. */
+    .equ CLINT_CMP,    0x02004000  /* mtimecmp lo/hi                 */
+    .equ CLINT_TIME,   0x0200BFF8  /* mtime lo/hi (offsets exceed a
+                                    * 12-bit immediate, so each block
+                                    * gets its own base)              */
     .equ IRQ_STEP,     400
     .equ CAUSE_ECALL,  11
 
@@ -79,16 +83,17 @@ _start:
     la  t0, trap_handler
     csrw mtvec, t0
 
-    /* machine timer: free running from zero, first compare at IRQ_STEP */
-    li   t0, TIMER
-    sw   zero, MTIME_LO(t0)
-    sw   zero, 4(t0)
-    sw   zero, MTIMECMP_HI(t0)
+    /* machine timer (CLINT): mtime free runs from reset; hi first so
+     * the compare value never passes through a smaller intermediate
+     * state while mtime runs, then restart mtime from zero so the
+     * first interrupt lands IRQ_STEP ticks from here */
+    li   t0, CLINT_CMP
+    sw   zero, 4(t0)            /* mtimecmp hi */
     li   t1, IRQ_STEP
-    sw   t1, MTIMECMP_LO(t0)
-    sw   zero, TMR_PRESCALE(t0)
-    li   t1, 1
-    sw   t1, TMR_CTRL(t0)
+    sw   t1, 0(t0)              /* mtimecmp lo */
+    li   t0, CLINT_TIME
+    sw   zero, 4(t0)            /* mtime hi */
+    sw   zero, 0(t0)            /* mtime lo */
 
     /* enable the machine timer interrupt, then interrupts globally */
     li   t0, 0x80               /* mie.MTIE */
@@ -167,11 +172,11 @@ trap_handler:
 
 irq_path:
     addi s7, s7, 1
-    li   s9, TIMER
-    lw   s10, MTIMECMP_LO(s9)
+    li   s9, CLINT_CMP
+    lw   s10, 0(s9)
     li   s8, IRQ_STEP
     add  s10, s10, s8           /* absolute schedule, immune to handler jitter */
-    sw   s10, MTIMECMP_LO(s9)
+    sw   s10, 0(s9)
     mret
 
     /* anything else is a real detection: a fault has pushed the core

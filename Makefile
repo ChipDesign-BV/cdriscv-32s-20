@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 ABI        := ilp32
 
-.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -729,7 +729,7 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
 fi-check: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_check.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --runs $(FI_RUNS) --seed $(FI_SEED) \
 	  --hex $(BUILD)/fi_workload_check.hex --golden f095470a \
-	  --golden-cfg fffffcfd_00010000_0000227c \
+	  --golden-cfg fffffcfd_00010000_000021e4_00000000 \
 	  --sw-detect bad0c0de \
 	  --ibase 76 --ispan 70 --min-cycle 200 --max-cycle 9000 \
 	  --name "D: arithmetic and memory, with a configuration check" \
@@ -1164,14 +1164,17 @@ $(BUILD)/tb_fi.vvp: $(RTL) verif/fi/tb_fi.sv | $(BUILD)
 # detected / silent-ok / silent data corruption / hang.  The SDC count
 # is the one that matters: a fault that changes the result and reports
 # nothing is what a safety mechanism exists to prevent.
-fi: fi-arith fi-trap fi-mem
+fi: fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
 
 # --golden-cfg is the safety configuration signature from a fault-free
 # run.  Without it a fault that switches a detector off is reported as
-# silent-ok, which is the most misleading label available.
+# silent-ok, which is the most misleading label available.  All goldens
+# below were re-measured on THIS variant's RTL (the compressed-code
+# layout moved every address, and the CLINT owns MTIP now); the
+# signature has grown a fourth word, the PMP array fold.
 fi-arith: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --runs $(FI_RUNS) --seed $(FI_SEED) \
-	  --golden-cfg 00000001_ffffffff_ff000128 \
+	  --golden-cfg 00000001_ffffffff_ff0000d0_00000000 \
 	  | tee $(BUILD)/fi_campaign.txt
 
 # Workload B exists because workload A reported mepc and mstatus.MIE as
@@ -1181,9 +1184,10 @@ fi-arith: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload.hex $(BUILD)/dtcm_zero.hex
 # them live.  IBASE/ISPAN are B's own live code window.
 fi-trap: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_trap.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --runs $(FI_RUNS) --seed $(FI_SEED) \
-	  --hex $(BUILD)/fi_workload_trap.hex --golden 9c235678 \
-	  --ibase 57 --ispan 53 --min-cycle 200 --max-cycle 5400 \
-	  --name "B: traps and interrupts" \
+	  --hex $(BUILD)/fi_workload_trap.hex --golden 7ed54dd1 \
+	  --golden-cfg 00000001_ffffffff_ff000104_00000000 \
+	  --ibase 57 --ispan 53 --min-cycle 200 --max-cycle 4500 \
+	  --name "B: traps and interrupts (CLINT MTIP)" \
 	  | tee $(BUILD)/fi_campaign_trap.txt
 
 # Workload C is almost nothing but loads and stores, at every width and
@@ -1195,9 +1199,90 @@ fi-trap: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_trap.hex $(BUILD)/dtcm_zero.hex
 fi-mem: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --runs $(FI_RUNS) --seed $(FI_SEED) \
 	  --hex $(BUILD)/fi_workload_mem.hex --golden 02576cb6 \
+	  --golden-cfg 00000001_ffffffff_ff0000dc_00000000 \
 	  --ibase 43 --ispan 31 --min-cycle 150 --max-cycle 2300 \
 	  --name "C: dense sub-word memory traffic" \
 	  | tee $(BUILD)/fi_campaign_mem.txt
+
+# ---- variant 2 mechanisms: inject where detection is claimed --------
+# Systematic sweeps, not random draws: every wire bit of the E2E links
+# at least once, every PMP array bit, every CLINT counter bit.  The
+# sweep spec is printed into each report so the coverage claim carries
+# its own fault list.
+
+# E2E: transients on the wires BETWEEN the link endpoints, during live
+# beats (the bench holds each force for exactly one clock).  Workload C
+# because it has the densest data traffic at every width.  Target 38 is
+# the byte-enable wires -- the DOCUMENTED gap in the {data, addr} fold
+# -- included to MEASURE the escape, not to claim coverage.  The I-TCM
+# write link is not separately swept: no workload writes code, and the
+# slave-side endpoint is the same module proven by block-e2e-link.
+fi-e2e: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
+	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
+	  --hex $(BUILD)/fi_workload_mem.hex --golden 02576cb6 \
+	  --golden-cfg 00000001_ffffffff_ff0000dc_00000000 \
+	  --sweep 34:72:2,35:32:2,36:40:2,37:40:2,38:4:8 \
+	  --ibase 43 --ispan 31 --min-cycle 150 --max-cycle 2300 \
+	  --name "E2E links: every wire bit, live traffic (workload C)" \
+	  | tee $(BUILD)/fi_campaign_e2e.txt
+
+# CLINT: mtimecmp/msip/prescaler are inside the CLINT's own cfg-parity
+# fold and must report as configuration parity; mtime is hardware-
+# updated, correctly outside the fold, and its upsets are UNDETECTED BY
+# DESIGN -- the row exists to measure that honestly, and the watchdog
+# argument for bounding it lives in the FMEDA notes.  Workload B is the
+# one that keeps the machine timer live.
+fi-clint: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_trap.hex $(BUILD)/dtcm_zero.hex
+	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
+	  --hex $(BUILD)/fi_workload_trap.hex --golden 7ed54dd1 \
+	  --golden-cfg 00000001_ffffffff_ff000104_00000000 \
+	  --sweep 27:64:3,28:64:3,29:17:3 \
+	  --ibase 57 --ispan 53 --min-cycle 200 --max-cycle 4500 \
+	  --name "CLINT: mtime / mtimecmp / msip+prescaler (workload B)" \
+	  | tee $(BUILD)/fi_campaign_clint.txt
+
+# PMP: the protection arrays have NO parity (the CSR file's guard folds
+# mtvec only) -- that is a measured finding, not a bench artefact.  The
+# deposits land in the MAIN core only, so any upset whose effect ever
+# reaches an access decision diverges the cores and lockstep must
+# catch it; an upset in a region the workload does not exercise has no
+# observer and lands as `latent` through the cfg signature's PMP fold.
+# Workload E keeps a locked deny-all region live by probing it every
+# iteration.
+fi-pmp: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_pmp.hex $(BUILD)/dtcm_zero.hex
+	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
+	  --hex $(BUILD)/fi_workload_pmp.hex --golden bff14962 \
+	  --golden-cfg 00000101_ffffffff_ff0000e4_04000370 \
+	  --sweep 30:64:3,31:256:1 \
+	  --ibase 36 --ispan 36 --min-cycle 250 --max-cycle 2800 \
+	  --name "E: PMP arrays under live denials (workload E)" \
+	  | tee $(BUILD)/fi_campaign_pmp.txt
+
+# Zcmp: the sequencer's step counter and the held encoding, flipped
+# MID-SEQUENCE in the main core (the bench defers each deposit to the
+# first cycle ST_SEQ is active; a window that never meets one reports
+# not-injected).  Lockstep is the mechanism under test.
+fi-zcmp: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_zcmp.hex $(BUILD)/dtcm_zero.hex
+	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
+	  --hex $(BUILD)/fi_workload_zcmp.hex --golden 081c5530 \
+	  --golden-cfg 00000001_ffffffff_ff0000f4_00000000 \
+	  --sweep 32:5:24,33:64:2 \
+	  --ibase 24 --ispan 44 --min-cycle 200 --max-cycle 5400 \
+	  --name "F: Zcmp sequences, mid-sequence upsets (workload F)" \
+	  | tee $(BUILD)/fi_campaign_zcmp.txt
+
+# JTAG/debug: the observation window is read-only by construction --
+# nothing in dbg_bridge/dbg_win can reach the core, the bus or the
+# memories, and the TAP itself is held in reset while trst_ni is low
+# (the in-mission state).  This small sweep backs that structural
+# argument with a measurement; the expected result is 100 % silent-ok.
+fi-dbg: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload.hex $(BUILD)/dtcm_zero.hex
+	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
+	  --golden-cfg 00000001_ffffffff_ff0000d0_00000000 \
+	  --sweep 39:8:8 \
+	  --min-cycle 200 --max-cycle 2400 \
+	  --name "JTAG/debug observation state (workload A)" \
+	  | tee $(BUILD)/fi_campaign_dbg.txt
 
 # --------------------------------------------------------------- formal
 # Bounded model check of the fetch stage.  Depth is a variable because
