@@ -380,9 +380,10 @@ module cdriscv_32s_20_subsys
   // The TCMs' internal ECC covers the arrays; what it cannot see is the
   // path -- address decode, bus muxing, the interconnect.  The E2E
   // endpoints (cdriscv_32s_20_e2e_link) close that: check bits over
-  // {payload, byte address} travel beside each TCM request and
-  // response, generated at one end and checked at the other, so a
-  // corrupted payload OR a wrong-address delivery flags as FLT_E2E.
+  // {payload, byte address, byte enables} travel beside each TCM
+  // request and response, generated at one end and checked at the
+  // other, so a corrupted payload, a wrong-address delivery OR a
+  // byte-enable flip flags as FLT_E2E.
   //
   // Scope is deliberately the two TCM links only: a wrong-address
   // delivery into a memory is silent and fatal, while the peripheral
@@ -394,8 +395,12 @@ module cdriscv_32s_20_subsys
   // bus timing -- the access completes and the fault latches in the
   // safety controller.  Sub-word writes are covered too: the check is
   // made on the delivered request wires, before the TCM's internal
-  // read-modify-write (byte enables themselves are the one thing the
-  // fixed {data, addr} fold cannot cover -- see the module header).
+  // read-modify-write.  The byte enables are in the fold as well
+  // (since 2026-09-02, closing the one documented residual -- all 10
+  // SDCs of the E2E fault sweep had been be flips; see the module
+  // header): each endpoint folds the be of the access it saw, the
+  // instruction master the constant 4'b1111 the bus drives for a
+  // fetch.
   // Response attribution, from the bus's own owner tracking (exported,
   // not duplicated).  The D-TCM only ever answers the data master; the
   // I-TCM answer routes on the owner bit, mirroring the bus's response
@@ -412,6 +417,7 @@ module cdriscv_32s_20_subsys
       .rst_ni         (core_rst_n),
       .gnt_i          (instr_gnt),
       .we_i           (1'b0),            // read-only master
+      .be_i           (4'b1111),         // what the bus drives for a fetch
       .addr_i         (instr_addr),
       .wdata_i        (32'b0),
       .rvalid_i       (instr_rvalid),
@@ -428,6 +434,7 @@ module cdriscv_32s_20_subsys
       .rst_ni         (core_rst_n),
       .gnt_i          (data_gnt),
       .we_i           (data_we),
+      .be_i           (data_be),
       .addr_i         (data_addr),
       .wdata_i        (data_wdata),
       .rvalid_i       (data_rvalid),
@@ -524,6 +531,7 @@ module cdriscv_32s_20_subsys
       .req_i          (itcm_req),
       .gnt_i          (itcm_gnt),
       .we_i           (itcm_we),
+      .be_i           (itcm_be),
       .addr_i         (itcm_addr),
       .wdata_i        (itcm_wdata),
       .rvalid_i       (itcm_rvalid),
@@ -540,6 +548,7 @@ module cdriscv_32s_20_subsys
       .req_i          (dtcm_req),
       .gnt_i          (dtcm_gnt),
       .we_i           (dtcm_we),
+      .be_i           (dtcm_be),
       .addr_i         (dtcm_addr),
       .wdata_i        (dtcm_wdata),
       .rvalid_i       (dtcm_rvalid),

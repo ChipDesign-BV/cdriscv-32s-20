@@ -409,13 +409,62 @@ module cdriscv_32s_20_csr
       .q_o     (minstret_q)
   );
 
+  // ------------------------------------------------------------------
+  // Configuration parity
+  // ------------------------------------------------------------------
+  // Two groups behind one cfg_err_o (the core exports a single
+  // fault_cfg_par_o, which the subsystem folds into CFG_SRC bit 6 --
+  // "the core's CSR file"; finer attribution would need a port, and
+  // the reaction is identical either way):
+  //
+  //  * mtvec, guarded since V37;
+  //  * the PMP arrays (pmpcfg0/1 storage + pmpaddr0..7), added
+  //    2026-09-02.  The fault campaign measured 90.8 % of PMP-array
+  //    SEUs as LATENT (407 of 448, verification_findings_20.md
+  //    section 18): a flip silently rewrites protection that nothing
+  //    consumes until much later, which is exactly the quasi-static
+  //    fault class this mechanism exists for.  Separate instance, so a
+  //    frequent mtvec rewrite never re-baselines the PMP fold.
+  //
+  // Both folds run over the STORED arrays (pmpcfg_q / pmpaddr_q), not
+  // the written value: pmpcfg writes are WARL-masked on the way in
+  // (bits [6:5] dropped, R=0/W=1 and locked bytes rejected), so parity
+  // over csr_wdata would disagree with the register it claims to
+  // guard.  cfg_parity captures one cycle AFTER the write pulse, from
+  // cfg_i itself, which makes the stored-value property structural.
+  // The wr pulse covers every architectural write that can touch the
+  // group -- including a fully-locked no-op write, which harmlessly
+  // re-captures the unchanged parity.  pmpcfg2/3 hold no storage and
+  // are excluded.
+  logic mtvec_par_err, pmp_par_err;
+  logic [40*PMP_REGIONS-1:0] pmp_par_flat;
+
   cdriscv_32s_20_cfg_parity #(.Width(32)) u_cfg_par (
       .clk_i  (clk_i),
       .rst_ni (rst_ni),
       .cfg_i  (mtvec_q),
       .wr_i   (csr_we && (addr_i == CSR_MTVEC)),
-      .err_o  (cfg_err_o)
+      .err_o  (mtvec_par_err)
   );
+
+  always_comb begin
+    pmp_par_flat = '0;
+    for (int i = 0; i < PMP_REGIONS; i++) begin
+      pmp_par_flat[8*i +: 8] = pmpcfg_q[i];
+      pmp_par_flat[8*PMP_REGIONS + 32*i +: 32] = pmpaddr_q[i];
+    end
+  end
+
+  cdriscv_32s_20_cfg_parity #(.Width(40*PMP_REGIONS)) u_pmp_par (
+      .clk_i  (clk_i),
+      .rst_ni (rst_ni),
+      .cfg_i  (pmp_par_flat),
+      .wr_i   (csr_we && (is_pmpaddr ||
+                          (addr_i == CSR_PMPCFG0) || (addr_i == CSR_PMPCFG1))),
+      .err_o  (pmp_par_err)
+  );
+
+  assign cfg_err_o = mtvec_par_err || pmp_par_err;
 
 endmodule
 

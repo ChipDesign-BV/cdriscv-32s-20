@@ -575,6 +575,16 @@ $(BUILD)/obj_syscov/tb_sys_cov: $(RTL) $(TB) $(COVER_SV) | $(BUILD)
 # the simulation exits non-zero, the status is dropped, the .dat is
 # collected anyway and lands in the merge.  Coverage measured from a
 # failing test is not coverage.
+#
+# The && alone is NOT enough (finding, verification_findings_20.md
+# section 17): tb_cdriscv_subsys reports FAIL by $display and exits 0
+# through $finish, so the exit status only filters crashes.  Every run
+# below therefore also captures its log and greps the verdict, the way
+# the pmp/zcmp runs were added -- a bench printing FAIL but exiting 0
+# must be excluded from the merge, not silently counted.  The cosim
+# runs have no PASS verdict (the Spike comparison happens in `make
+# cosim`), so their guard is the absence of the failure words the bench
+# can print: TIMEOUT, FAULT, ASSERTION.
 # The clock monitor bench runs under Icarus like the other block
 # benches, but coverage is measured only from the Verilator builds, so
 # without a Verilator build of it the report goes on showing lines as
@@ -645,47 +655,74 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
           $(BUILD)/safety_test.hex \
           $(BUILD)/pmp_test.hex $(BUILD)/zcmp_test.hex \
           $(BUILD)/regwalk_test.hex $(BUILD)/dtcm_zero.hex sw
+	@# The tb_cosim_cov soaks end by cycle-cap TIMEOUT by design: the
+	@# workload completes and parks (WFI/spin), and the stall variants can
+	@# never reach MAXRETIRE under 90 % back-pressure.  The exit guard
+	@# therefore greps for FAULT|ASSERTION only -- adding TIMEOUT to it
+	@# rejects every healthy soak (found the hard way, 2026-09-02).
 	@mkdir -p $(BUILD)/cov && rm -f $(BUILD)/cov/*.dat
 	@./$(BUILD)/obj_cov/tb_cosim_cov +HEX=$(BUILD)/cosim_isa.hex \
-	  +MAXRETIRE=100000 +QUIET > /dev/null 2>&1 && \
+	  +MAXRETIRE=100000 +QUIET > $(BUILD)/cov/isa_cov.log 2>&1 && \
+	  ! grep -qE "FAULT|ASSERTION" $(BUILD)/cov/isa_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_isa.dat
 	@for p in 15 35 70 90; do \
 	  ./$(BUILD)/obj_cov/tb_cosim_cov +HEX=$(BUILD)/cosim_isa.hex \
-	    +MAXRETIRE=100000 +STALL=$$p +QUIET > /dev/null 2>&1 && \
+	    +MAXRETIRE=100000 +STALL=$$p +QUIET \
+	    > $(BUILD)/cov/isa_stall$${p}_cov.log 2>&1 && \
+	  ! grep -qE "FAULT|ASSERTION" $(BUILD)/cov/isa_stall$${p}_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_isa_stall$$p.dat || exit 1; \
 	done
 	@for s in $(COV_SEEDS); do \
 	  if [ -f $(BUILD)/random/rand_$$s.hex ]; then \
 	    ./$(BUILD)/obj_cov/tb_cosim_cov +HEX=$(BUILD)/random/rand_$$s.hex \
-	      +MAXRETIRE=100000 +QUIET > /dev/null 2>&1 && \
+	      +MAXRETIRE=100000 +QUIET > $(BUILD)/cov/r$${s}_cov.log 2>&1 && \
+	    ! grep -qE "FAULT|ASSERTION" $(BUILD)/cov/r$${s}_cov.log && \
 	    mv coverage.dat $(BUILD)/cov/cov_r$$s.dat || exit 1; \
 	  fi; done
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/prog.itcm.hex \
-	  +DTCM_HEX=$(BUILD)/prog.dtcm.hex +MAX_CYCLES=20000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/prog.dtcm.hex +MAX_CYCLES=20000 \
+	  > $(BUILD)/cov/smoke_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/smoke_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_smoke.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/safety_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=20000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=20000 \
+	  > $(BUILD)/cov/safety_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/safety_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_safety.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/periph_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=2000000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=2000000 \
+	  > $(BUILD)/cov/periph_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/periph_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_periph.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/reaction_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=500000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=500000 \
+	  > $(BUILD)/cov/reaction_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/reaction_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_reaction.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/rdback_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=300000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=300000 \
+	  > $(BUILD)/cov/rdback_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/rdback_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_rdback.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/fence_csr_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 \
+	  > $(BUILD)/cov/fence_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/fence_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_fence.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/trap_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 \
+	  > $(BUILD)/cov/trap_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/trap_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_trap.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/ams_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=300000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=300000 \
+	  > $(BUILD)/cov/ams_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/ams_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_ams.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/regwalk_test.hex \
-	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=200000 > /dev/null 2>&1 && \
+	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=200000 \
+	  > $(BUILD)/cov/regwalk_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/regwalk_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_regwalk.dat
 	@./$(BUILD)/obj_syscov/tb_sys_cov +ITCM_HEX=$(BUILD)/pmp_test.hex \
 	  +DTCM_HEX=$(BUILD)/dtcm_zero.hex +MAX_CYCLES=100000 \
@@ -697,7 +734,8 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
 	  > $(BUILD)/cov/zcmp_cov.log 2>&1 && \
 	  grep -q "\[TB\] PASS" $(BUILD)/cov/zcmp_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_zcmp.dat
-	@./$(BUILD)/obj_cmcov/tb_clkmon_cov > /dev/null 2>&1 && \
+	@./$(BUILD)/obj_cmcov/tb_clkmon_cov > $(BUILD)/cov/clkmon_cov.log 2>&1 && \
+	  grep -q "PASS" $(BUILD)/cov/clkmon_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_clkmon.dat
 	@./$(BUILD)/obj_jtagcov/tb_jtag_cov > $(BUILD)/cov/jtag_cov.log 2>&1 && \
 	  grep -q "PASS" $(BUILD)/cov/jtag_cov.log && \
@@ -706,7 +744,9 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
 	  grep -q "PASS" $(BUILD)/cov/dbg_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_dbg.dat
 	@./$(BUILD)/obj_sftycov/tb_safety_cov +ITCM_HEX=$(BUILD)/safety_test.hex \
-	  > /dev/null 2>&1 && mv coverage.dat $(BUILD)/cov/cov_safetybench.dat
+	  > $(BUILD)/cov/safetybench_cov.log 2>&1 && \
+	  grep -q "\[tb_safety\] PASS" $(BUILD)/cov/safetybench_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_safetybench.dat
 	verilator_coverage --write $(BUILD)/cov/merged.dat $(BUILD)/cov/cov_*.dat
 	@rm -rf $(BUILD)/cov/ann_line $(BUILD)/cov/ann_tog
 	verilator_coverage --filter-type line --annotate $(BUILD)/cov/ann_line \
@@ -1213,8 +1253,10 @@ fi-mem: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
 # E2E: transients on the wires BETWEEN the link endpoints, during live
 # beats (the bench holds each force for exactly one clock).  Workload C
 # because it has the densest data traffic at every width.  Target 38 is
-# the byte-enable wires -- the DOCUMENTED gap in the {data, addr} fold
-# -- included to MEASURE the escape, not to claim coverage.  The I-TCM
+# the byte-enable wires -- the former gap in the fold, which measured
+# as ALL 10 SDCs of this sweep and was closed on 2026-09-02 by folding
+# be into the check ({data, addr, be}); the acceptance criterion is now
+# ZERO SDC, with the be injections in the detected column.  The I-TCM
 # write link is not separately swept: no workload writes code, and the
 # slave-side endpoint is the same module proven by block-e2e-link.
 fi-e2e: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
@@ -1241,14 +1283,15 @@ fi-clint: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_trap.hex $(BUILD)/dtcm_zero.he
 	  --name "CLINT: mtime / mtimecmp / msip+prescaler (workload B)" \
 	  | tee $(BUILD)/fi_campaign_clint.txt
 
-# PMP: the protection arrays have NO parity (the CSR file's guard folds
-# mtvec only) -- that is a measured finding, not a bench artefact.  The
-# deposits land in the MAIN core only, so any upset whose effect ever
-# reaches an access decision diverges the cores and lockstep must
-# catch it; an upset in a region the workload does not exercise has no
-# observer and lands as `latent` through the cfg signature's PMP fold.
-# Workload E keeps a locked deny-all region live by probing it every
-# iteration.
+# PMP: the protection arrays carry configuration parity since
+# 2026-09-02 (u_pmp_par in the CSR file), added because this campaign
+# measured 90.8 % of PMP-array SEUs as latent when the guard folded
+# mtvec only.  The deposits land in the MAIN core only; every flip --
+# exercised region or not -- must now report as FLT_CFG_PAR within
+# cycles, with lockstep still backstopping anything that reaches an
+# access decision.  The cfg signature's PMP fold stays as the bench's
+# independent check on the mechanism.  Workload E keeps a locked
+# deny-all region live by probing it every iteration.
 fi-pmp: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_pmp.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
 	  --hex $(BUILD)/fi_workload_pmp.hex --golden bff14962 \

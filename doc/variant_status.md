@@ -28,7 +28,7 @@ table:
 
 | Module | Purpose | in |
 |---|---|---|
-| `mult` | single-cycle 33×33 multiplier, replacing `multdiv`'s multiply path | yes |
+| `mult` | single-cycle 33×33 multiplier — the ONLY multiply path since 2026-09-02, when `multdiv`'s dead iterative multiply half was deleted | yes |
 | `pmp` | 8-region physical memory protection checker | yes, data accesses |
 | `decompress` | Zca/Zcb 16 → 32 bit expander; flags (not expands) Zcmp | yes |
 | `zcmp` | Zcmp micro-operation step table, walked by the core's `ST_SEQ` | yes |
@@ -64,7 +64,7 @@ anything in the RTL.
 | `if_align` | `block-if-align` | 101 317 | 9/9 | byte-stream walker written from the ISA rule alone |
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
-| `e2e_link` | `block-e2e-link` | 11 286 | 8/8 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic |
+| `e2e_link` | `block-e2e-link` | 12 024 | 10/10 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic — since 2026-09-02 including byte-enable corruption (write beat and read request), and two be mutants: the fold-drop and the live-vs-held phase |
 
 `make block-20` runs all thirteen: **2 051 674 checks**.
 
@@ -316,6 +316,22 @@ Largest first.
    too. A software access violation therefore sets the same sticky
    status bit as a real memory fault. Distinguishing them would need a
    separate event source.
+
+   **The arrays themselves carry configuration parity since
+   2026-09-02.** fi-pmp measured the reason (§18 of
+   verification_findings_20.md): 90.8 % of PMP-array SEUs — 407 of
+   448 — were silently latent, protection rewritten under a passing
+   workload with nothing to say so. A second `cfg_parity` instance in
+   the CSR file (`u_pmp_par`, 320 bits over `pmpcfg0/1` storage +
+   `pmpaddr0..7`) now folds the STORED arrays — after the WARL
+   masking, which is what makes the capture structurally unable to
+   disagree with the registers it guards — and reports on the same
+   `fault_cfg_par_o` the mtvec guard uses, so both lockstep cores get
+   it by construction and no subsystem port moved. Attribution is the
+   core's existing CFG_SRC bit 6 (one export per core; mtvec and PMP
+   share the group). tb_safety adds three directed checks: a pmpcfg
+   shadow flip, a pmpaddr flip, and a flip of the guard's own parity
+   bit — measured self-detecting through the same path.
 6. **The CLINT is instantiated; so, now, is E2E.**
 
    The CLINT owns MTIP and MSIP now. It sits on the **main bus** at
@@ -366,12 +382,18 @@ Largest first.
    * **Sub-word writes are covered**, because the write-path check is
      made on the delivered request wires *before* the TCM's internal
      read-modify-write — nothing compares against what the TCM stores,
-     so the RMW merge cannot false-flag. What the fixed `{data, addr}`
-     fold cannot cover is the **byte-enable wires themselves**: a `be`
-     corrupted in flight changes which bytes a sub-word write commits,
-     undetected by E2E (the access type read/write IS cross-checked;
-     `be` is not). Closing that would mean changing the proven `e2e`
-     fold, which this pass deliberately did not do.
+     so the RMW merge cannot false-flag. **The byte-enable wires are
+     covered too, since 2026-09-02.** This entry used to name them as
+     the one thing the fixed `{data, addr}` fold could not cover, and
+     fi-e2e then measured that residual as the campaign's ENTIRE SDC
+     budget — all 10 SDCs were `be` flips (§18 of
+     verification_findings_20.md). The fold is now `{data, addr, be}`,
+     the four `be` bits run through the same Hsiao encoder so each
+     gets a distinct odd-weight column (the no-two-bits-cancel
+     property the address fold was rebuilt for — the naive slice-XOR
+     mistake was not repeated), both endpoints hold the `be` of the
+     outstanding access for the read path, and the instruction master
+     folds the constant `4'b1111` the bus drives for a fetch.
 
    `block-e2e-link` (11 286 checks, mutants 8/8 — including the one
    that matters: address dropped from the fold at *both* ends, which
@@ -415,6 +437,18 @@ Largest first.
    run says otherwise**: all 46 setup-violating paths start in the fetch
    stage and the multiplier is on none of them (item 8). Removing it
    would cost performance and recover nothing.
+
+   What WAS removed (2026-09-02) is the other half of the split:
+   `multdiv`'s inherited iterative multiply datapath, which this
+   integration could never select (`start_md` fires only for divides)
+   and which the coverage re-run exposed as verified-but-dead logic —
+   waiver W5, finding §17 of verification_findings_20.md. `multdiv` is
+   now a pure 32-cycle restoring divider (same name, same ports, same
+   divide behaviour byte for byte); the dispatch invariant is stated
+   structurally in the core and checked at the divider's `req_i` in
+   simulation, `block-multdiv` runs divide vectors only (the multiply
+   vectors belong to `block-mult`, with the logic they exercised), and
+   W5 is closed because the waived line no longer exists.
 8. **The re-harden with the complete RTL is done. Everything physical
    passes; setup timing at the slow corner does not.**
 
@@ -530,6 +564,19 @@ Largest first.
    the verdict); `gate-fsm-core` predates the 3-bit ST_SEQ state
    machine (to-do attached to W2a); fault injection and the FMEDA
    remain variant-1 results.
+
+   *(Updated 2026-09-02 — most of that Open list has since closed:
+   every coverage run now captures its log and greps the verdict (the
+   cosim runs, which have no PASS verdict, are guarded against their
+   failure words instead); fault injection is re-measured on the final
+   RTL — all eight campaigns, `build/fi_campaign*.txt`, including
+   fi-e2e at zero SDC after the byte-enable fold and fi-pmp at 448/448
+   detected in 2 cycles after the PMP parity extension (§18 of
+   verification_findings_20.md carries the before/after tables); the
+   coverage and toggle numbers from the 2026-09-02 re-run are in the
+   paragraph below. Still open: `gate-fsm-core` vs the 3-bit ST_SEQ
+   machine, and the FMEDA regeneration, which waits for the O2
+   marathon by design.)*
 
 ---
 

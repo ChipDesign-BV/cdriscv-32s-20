@@ -50,7 +50,11 @@ module cdriscv_32s_20_core_cover (
     input logic        pmp_allow_data,
     input logic        instr_req,
     input logic [7:0]  d_match, d_perm, d_lock,
-    input logic [7:0]  f_match, f_perm, f_lock
+    input logic [7:0]  f_match, f_perm, f_lock,
+    // PMP array configuration parity (added 2026-09-02 with u_pmp_par:
+    // fi-pmp measured 90.8 % of array SEUs latent without it).  Hit by
+    // tb_safety's directed pmpcfg/pmpaddr/parity-bit flips.
+    input logic        pmp_par_err
 );
   // Zcmp op class, decoded from the raw halfword with the same field
   // tests as cdriscv_32s_20_zcmp.  Only meaningful under instr_zcmp.
@@ -154,6 +158,9 @@ module cdriscv_32s_20_core_cover (
     // because M-mode passed through it (a denied word is never requested)
     cp_pmp_f_unlocked_mmode: cover (instr_req && (fw != 4'd8)
                                     && !f_perm[fw[2:0]] && !f_lock[fw[2:0]]);
+    // the array parity guard actually firing (not just STATUS bit 13,
+    // which any of the eight cfg groups can raise)
+    cp_pmp_cfg_parity:       cover (pmp_par_err);
   end
 endmodule
 
@@ -175,7 +182,8 @@ bind cdriscv_32s_20_core cdriscv_32s_20_core_cover u_cover (
     .d_match (u_pmp_data.match), .d_perm (u_pmp_data.perm),
     .d_lock (u_pmp_data.lock),
     .f_match (u_pmp_fetch.match), .f_perm (u_pmp_fetch.perm),
-    .f_lock (u_pmp_fetch.lock)
+    .f_lock (u_pmp_fetch.lock),
+    .pmp_par_err (u_csr.pmp_par_err)
 );
 
 // ------------------------------------------------------------ fetch stage
@@ -259,10 +267,13 @@ module cdriscv_32s_20_safety_cover (
     // the sources added since the model was first written (2026-09-01).
     // cfg parity latches through its own ungated path, so it is
     // sampled from STATUS rather than fault_latched.  FLT_E2E latching
-    // is reached through the INJECT register (safety_test check 10);
-    // the E2E *checker* detecting a real mismatch is not reachable in a
-    // fault-free simulation and is evidenced by block-e2e-link and its
-    // mutation run instead -- see verif/coverage_waivers.md W3.
+    // is reached through the INJECT register (safety_test check 10)
+    // AND, since 2026-09-02, through the E2E checker detecting a real
+    // corruption: tb_safety forces a byte-enable flip on a live write
+    // beat and a corrupted read response, so the checker's own
+    // detection is now simulated rather than argued (the escape
+    // statistics remain block-e2e-link's business -- see
+    // verif/coverage_waivers.md W3).
     cp_flt_cfg_par:   cover (status_q[13]);
     cp_flt_e2e:       cover (fault_latched[14]);
     // and each configured reaction actually firing

@@ -174,8 +174,8 @@ module tb_cdriscv_subsys;
   logic [31:0] exit_code;
 
   assign ext_pready  = 1'b1;
-  assign ext_pslverr = 1'b0;
-  assign ext_prdata  = 32'h0;
+  // ext_pslverr / ext_prdata are procedural so the toggle-coverage
+  // stimulus below can wiggle them; they idle at the old tied values.
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -212,8 +212,25 @@ module tb_cdriscv_subsys;
       $readmemh(dtcm_hex, dut.u_dtcm.mem);
     end
 
+    ext_pslverr = 1'b0;
+    ext_prdata  = 32'h0;
+
     @(posedge rst_n);
-    repeat (5) @(posedge clk);
+    // Toggle-coverage stimulus (O7) for input pins every system test
+    // otherwise ties off: the analog supervisor flags and the
+    // expansion-bus response wires.  Safe by construction -- FLAGCFG
+    // resets to 0 so a raised ana_flag cannot reach fault_o, the
+    // expansion APB bus is idle so prdata/pslverr are never sampled,
+    // and the pulse ends before fetch_enable rises.  This replaces the
+    // plain 5-cycle wait, so program timing is unchanged.
+    ana_flag    = 4'hf;
+    ext_prdata  = 32'hffff_ffff;
+    ext_pslverr = 1'b1;
+    repeat (4) @(posedge clk);
+    ana_flag    = '0;
+    ext_prdata  = 32'h0;
+    ext_pslverr = 1'b0;
+    @(posedge clk);
     fetch_enable = 1'b1;
   end
 

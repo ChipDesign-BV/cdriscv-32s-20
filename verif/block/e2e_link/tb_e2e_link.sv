@@ -19,10 +19,17 @@
 //   3. a corrupted ADDRESS flags -- the E2E property.  The directed
 //      version stores the SAME data at two addresses and corrupts the
 //      address in flight: identical payload, wrong address, must fail;
-//   4. corrupted check bits flag, both directions;
-//   5. a corrupted access-type bit flags (the slave answered a write
+//   4. corrupted BYTE ENABLES flag.  This was the documented E2E gap
+//      until 2026-09-02 -- the fault campaign measured all 10 SDCs of
+//      its E2E sweep to be be flips -- and the {data, addr, be} fold
+//      closed it, so this phase expects DETECTION: a be corrupted on a
+//      write beat flags at the slave, and one corrupted on a read
+//      request flags on the response (both ends fold the be of the
+//      outstanding access, so they disagree);
+//   5. corrupted check bits flag, both directions;
+//   6. a corrupted access-type bit flags (the slave answered a write
 //      where the master issued a read, or the reverse);
-//   6. errors are qualified: idle cycles never flag, even with garbage
+//   7. errors are qualified: idle cycles never flag, even with garbage
 //      driven onto the request wires, and a response from an
 //      unprotected slave is never checked.
 //
@@ -45,6 +52,7 @@ module tb_e2e_link;
 
   // ---- master-side request/response wires ---------------------------
   logic        m_req, m_we;
+  logic [3:0]  m_be;
   logic [31:0] m_addr, m_wdata;
   logic        m_gnt;
   logic        m_rvalid;
@@ -52,6 +60,7 @@ module tb_e2e_link;
 
   // ---- in-flight corruption (the interconnect under attack) ---------
   logic [31:0] x_req_addr, x_req_wdata;   // request path
+  logic [3:0]  x_req_be;
   logic        x_req_we;
   logic [6:0]  x_wr_chk;
   logic [31:0] x_rdata;                   // response path
@@ -59,12 +68,14 @@ module tb_e2e_link;
 
   // ---- slave-side wires, as delivered -------------------------------
   logic        s_we;
+  logic [3:0]  s_be;
   logic [31:0] s_addr, s_wdata;
   logic [6:0]  s_wr_chk;
 
   assign s_addr   = m_addr  ^ x_req_addr;
   assign s_wdata  = m_wdata ^ x_req_wdata;
   assign s_we     = m_we    ^ x_req_we;
+  assign s_be     = m_be    ^ x_req_be;
 
   // ---- TCM-shaped slave model: grant on request, answer next cycle --
   logic [31:0] mem [0:255];
@@ -103,6 +114,7 @@ module tb_e2e_link;
       .rst_ni         (rst_n),
       .gnt_i          (m_gnt),
       .we_i           (m_we),
+      .be_i           (m_be),
       .addr_i         (m_addr),
       .wdata_i        (m_wdata),
       .rvalid_i       (m_rvalid),
@@ -120,6 +132,7 @@ module tb_e2e_link;
       .req_i          (m_req),
       .gnt_i          (m_gnt),
       .we_i           (s_we),
+      .be_i           (s_be),
       .addr_i         (s_addr),
       .wdata_i        (s_wdata),
       .rvalid_i       (s_rvalid_q),
@@ -160,15 +173,21 @@ module tb_e2e_link;
     x_rdata       = x_rdata_nx;      x_rdata_nx    = 32'b0;
     x_rd_chk      = x_rd_chk_nx;     x_rd_chk_nx   = 7'b0;
     prot_en       = prot_en_nx;      prot_en_nx    = 1'b1;
-    m_req = 1'b0; m_we = 1'b0;
+    m_req = 1'b0; m_we = 1'b0; m_be = 4'b1111;
     x_req_addr = 32'b0; x_req_wdata = 32'b0; x_req_we = 1'b0; x_wr_chk = 7'b0;
+    x_req_be = 4'b0;
     exp_wr_err = 1'b0;
   endtask
 
-  // issue one access, with the corruption and expectations for it
+  // issue one access, with the corruption and expectations for it.
+  // The byte enables travel with every access: m_be is set by the
+  // caller (rnd_be() for the clean helpers) and xbe corrupts them in
+  // flight, the same shape as the address/data corruption.
   task automatic issue(input logic         we,
                        input logic [31:0]  a,
                        input logic [31:0]  d,
+                       input logic [3:0]   be,
+                       input logic [3:0]   xbe,
                        input logic [31:0]  xa,
                        input logic [31:0]  xd,
                        input logic         xw,
@@ -178,20 +197,32 @@ module tb_e2e_link;
                        input logic         prot,
                        input logic         ewr,
                        input logic         erd);
-    m_req = 1'b1; m_we = we; m_addr = a; m_wdata = d;
+    m_req = 1'b1; m_we = we; m_be = be; m_addr = a; m_wdata = d;
     x_req_addr = xa; x_req_wdata = xd; x_req_we = xw; x_wr_chk = xwc;
+    x_req_be = xbe;
     exp_wr_err = ewr;
     x_rdata_nx = xr; x_rd_chk_nx = xrc; prot_en_nx = prot;
     exp_rd_err_nx = erd;
     tick();
   endtask
 
+  // a byte-enable pattern a real master can drive
+  function automatic logic [3:0] rnd_be();
+    case ($urandom_range(0, 3))
+      1:       return 4'b0011 << (2 * $urandom_range(0, 1));
+      2:       return 4'b0001 << $urandom_range(0, 3);
+      default: return 4'b1111;
+    endcase
+  endfunction
+
   task automatic wr_clean(input logic [31:0] a, input logic [31:0] d);
-    issue(1'b1, a, d, 32'b0, 32'b0, 1'b0, 7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b0);
+    issue(1'b1, a, d, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0, 7'b0, 32'b0, 7'b0,
+          1'b1, 1'b0, 1'b0);
   endtask
 
   task automatic rd_clean(input logic [31:0] a);
-    issue(1'b0, a, $urandom, 32'b0, 32'b0, 1'b0, 7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b0);
+    issue(1'b0, a, $urandom, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0, 7'b0, 32'b0,
+          7'b0, 1'b1, 1'b0, 1'b0);
   endtask
 
   // idle cycle with garbage on the request wires -- including we high
@@ -199,8 +230,9 @@ module tb_e2e_link;
   // which is what pins the req/gnt qualification down
   task automatic junk();
     m_req = 1'b0; m_we = 1'b1;
-    m_addr = $urandom; m_wdata = $urandom;
+    m_addr = $urandom; m_wdata = $urandom; m_be = $urandom;
     x_req_addr = $urandom | 32'b1; x_req_wdata = $urandom;
+    x_req_be = 4'b1 << $urandom_range(0, 3);
     x_req_we = 1'b0; x_wr_chk = 7'b1 << $urandom_range(0, 6);
     exp_wr_err = 1'b0;
     tick();
@@ -225,8 +257,9 @@ module tb_e2e_link;
     exp_wr_err = 1'b0; exp_rd_err = 1'b0; exp_rd_err_nx = 1'b0;
     x_rdata = 32'b0; x_rdata_nx = 32'b0; x_rd_chk = 7'b0; x_rd_chk_nx = 7'b0;
     prot_en = 1'b1; prot_en_nx = 1'b1;
-    m_req = 1'b0; m_we = 1'b0; m_addr = 32'b0; m_wdata = 32'b0;
+    m_req = 1'b0; m_we = 1'b0; m_addr = 32'b0; m_wdata = 32'b0; m_be = 4'b1111;
     x_req_addr = 32'b0; x_req_wdata = 32'b0; x_req_we = 1'b0; x_wr_chk = 7'b0;
+    x_req_be = 4'b0;
 
     for (int i = 0; i < 256; i++) mem[i] = $urandom;
 
@@ -252,14 +285,36 @@ module tb_e2e_link;
 
     // ---- 2. write path: corrupted wdata / addr / check bits ---------
     for (int k = 0; k < 400; k++)   // data, 1- and 2-bit
-      issue(1'b1, rnd_addr(), $urandom, 32'b0, flip32((k % 2) + 1), 1'b0,
+      issue(1'b1, rnd_addr(), $urandom, rnd_be(), 4'b0,
+            32'b0, flip32((k % 2) + 1), 1'b0,
             7'b0, 32'b0, 7'b0, 1'b1, 1'b1, 1'b0);
     for (int k = 0; k < 400; k++)   // ADDRESS, 1- and 2-bit: same data, wrong place
-      issue(1'b1, rnd_addr(), $urandom, flip32((k % 2) + 1), 32'b0, 1'b0,
+      issue(1'b1, rnd_addr(), $urandom, rnd_be(), 4'b0,
+            flip32((k % 2) + 1), 32'b0, 1'b0,
             7'b0, 32'b0, 7'b0, 1'b1, 1'b1, 1'b0);
     for (int k = 0; k < 200; k++)   // carried check bits
-      issue(1'b1, rnd_addr(), $urandom, 32'b0, 32'b0, 1'b0,
+      issue(1'b1, rnd_addr(), $urandom, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0,
             7'b1 << $urandom_range(0, 6), 32'b0, 7'b0, 1'b1, 1'b1, 1'b0);
+    repeat (5) tick();
+
+    // ---- 2b. write path: corrupted BYTE ENABLES ----------------------
+    // Until 2026-09-02 this was the E2E gap -- the one request wire the
+    // fold excluded, and the source of every SDC in the fault
+    // campaign's E2E sweep.  The {data, addr, be} fold closes it, so
+    // this test expects DETECTION: 1- and 2-bit be flips, data and
+    // address intact, every one must flag at the slave.
+    for (int k = 0; k < 200; k++) begin
+      logic [3:0] xbe;
+      xbe = 4'b1 << $urandom_range(0, 3);
+      if (k % 2 == 1) begin
+        logic [3:0] x2;
+        x2 = 4'b1 << $urandom_range(0, 3);
+        while (x2 == xbe) x2 = 4'b1 << $urandom_range(0, 3);
+        xbe = xbe | x2;
+      end
+      issue(1'b1, rnd_addr(), $urandom, rnd_be(), xbe, 32'b0, 32'b0, 1'b0,
+            7'b0, 32'b0, 7'b0, 1'b1, 1'b1, 1'b0);
+    end
     repeat (5) tick();
 
     // ---- 3. read path: wrong-address delivery ------------------------
@@ -274,35 +329,42 @@ module tb_e2e_link;
       d  = $urandom;
       wr_clean(a, d);
       wr_clean(a ^ xa, d);                     // same data at both addresses
-      issue(1'b0, a, 32'b0, xa, 32'b0, 1'b0, 7'b0, 32'b0, 7'b0,
+      issue(1'b0, a, 32'b0, 4'b1111, 4'b0, xa, 32'b0, 1'b0, 7'b0, 32'b0, 7'b0,
             1'b1, 1'b0, 1'b1);
     end
     for (int k = 0; k < 300; k++)   // random reads, 1- and 2-bit address faults
-      issue(1'b0, rnd_addr(), 32'b0, flip32((k % 2) + 1), 32'b0, 1'b0,
+      issue(1'b0, rnd_addr(), 32'b0, rnd_be(), 4'b0,
+            flip32((k % 2) + 1), 32'b0, 1'b0,
+            7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
+    // byte enables of a READ corrupted in flight: the slave folds the
+    // be it held, the master the be it drove, so the response flags.
+    for (int k = 0; k < 200; k++)
+      issue(1'b0, rnd_addr(), 32'b0, rnd_be(), 4'b1 << $urandom_range(0, 3),
+            32'b0, 32'b0, 1'b0,
             7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
     repeat (5) tick();
 
     // ---- 4. read path: corrupted rdata / check bits ------------------
     for (int k = 0; k < 400; k++)
-      issue(1'b0, rnd_addr(), 32'b0, 32'b0, 32'b0, 1'b0, 7'b0,
+      issue(1'b0, rnd_addr(), 32'b0, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0, 7'b0,
             flip32((k % 2) + 1), 7'b0, 1'b1, 1'b0, 1'b1);
     for (int k = 0; k < 200; k++)
-      issue(1'b0, rnd_addr(), 32'b0, 32'b0, 32'b0, 1'b0, 7'b0,
+      issue(1'b0, rnd_addr(), 32'b0, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0, 7'b0,
             32'b0, 7'b1 << $urandom_range(0, 6), 1'b1, 1'b0, 1'b1);
     repeat (5) tick();
 
     // ---- 5. access type corrupted in flight --------------------------
     for (int k = 0; k < 100; k++)   // read arrives as a write
-      issue(1'b0, rnd_addr(), $urandom, 32'b0, 32'b0, 1'b1, 7'b0,
-            32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
+      issue(1'b0, rnd_addr(), $urandom, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b1,
+            7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
     for (int k = 0; k < 100; k++)   // write arrives as a read
-      issue(1'b1, rnd_addr(), $urandom, 32'b0, 32'b0, 1'b1, 7'b0,
-            32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
+      issue(1'b1, rnd_addr(), $urandom, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b1,
+            7'b0, 32'b0, 7'b0, 1'b1, 1'b0, 1'b1);
     repeat (5) tick();
 
     // ---- 6. an unprotected response is never checked -----------------
     for (int k = 0; k < 100; k++)
-      issue(1'b0, rnd_addr(), 32'b0, 32'b0, 32'b0, 1'b0, 7'b0,
+      issue(1'b0, rnd_addr(), 32'b0, rnd_be(), 4'b0, 32'b0, 32'b0, 1'b0, 7'b0,
             flip32(1), 7'b0, 1'b0 /* prot */, 1'b0, 1'b0 /* no flag */);
     repeat (5) tick();
 

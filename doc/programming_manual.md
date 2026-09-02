@@ -143,14 +143,17 @@ costs that matter for a worst-case execution time budget:
 |-----------|------|
 | ALU, load, store (aligned, hit) | 1 cycle |
 | Taken branch / jump | + pipeline refill |
-| `mul`, `div`, `rem` | **33 cycles**, constant — no early exit |
+| `mul`, `mulh[su|u]` | 1 cycle — single-cycle 33×33 multiplier |
+| `div`, `rem` | **33 cycles**, constant — no early exit |
 | Partial-word store (`sb`, `sh`) | 2 cycles — read-modify-write for the ECC code word |
 | CSR access | 1 cycle |
 
-Two consequences worth designing around: the multiplier/divider is
-constant-time, so its cost is predictable but never cheap, and byte or
-halfword stores cost double what word stores do because the ECC check
-bits cover the whole word. Prefer word-aligned structures in hot paths.
+Two consequences worth designing around: the divider is constant-time
+(the divider block serves *only* divides since 2026-09-02 — every
+multiply retires in one cycle through the dedicated multiplier), so a
+division's cost is predictable but never cheap, and byte or halfword
+stores cost double what word stores do because the ECC check bits cover
+the whole word. Prefer word-aligned structures in hot paths.
 
 `mcycle`/`minstret` (and their read-only `cycle`/`instret` shadows) are
 64-bit and free-running; read the high word, the low word, then the
@@ -416,6 +419,18 @@ compressed-code instruction straddling a word boundary faults if
 *either* word is denied. And after writing `pmpcfg`/`pmpaddr`, code
 already prefetched was checked under the old configuration — issue a
 `fence.i` if the new region must bind the very next instructions.
+
+**The PMP arrays carry configuration parity** (since 2026-09-02): a
+bit flip in any `pmpcfg`/`pmpaddr` storage — locked or not, exercised
+or not — latches `STATUS` bit 13 within a couple of cycles, exactly as
+an `mtvec` or `mtimecmp` flip does (§5). The parity re-baselines on
+every architectural write to the group, so software configuring PMP
+never sees a false flag; what it *should* do is treat `FLT_CFG_PAR`
+after lock-down as a protection-integrity alarm, because a flipped
+lock bit or boundary is precisely what the mechanism reports. Before
+this the arrays were the one quasi-static configuration in the design
+without a parity guard — fault injection measured 90.8 % of array
+upsets as silently latent, which is why the guard exists.
 
 `make pmp` is the directed test and exercises both directions on both
 ports — programmed-but-unlocked must still permit (and still execute),

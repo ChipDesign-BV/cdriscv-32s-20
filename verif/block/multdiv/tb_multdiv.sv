@@ -3,6 +3,16 @@
 //
 // Block level bench for cdriscv_32s_20_multdiv.
 //
+// DIVIDES ONLY since 2026-09-02: the DUT's multiply half was removed
+// (dead in-system -- the core routes every multiply to the single-cycle
+// cdriscv_32s_20_mult; finding in verification_findings_20.md section
+// 17).  The multiply vectors this bench used to carry are block-mult's
+// jurisdiction now (verif/block/mult/tb_mult.sv checks all four
+// multiply operations against an independent widening reference, with
+// the signedness corners directed); this bench drives only the four
+// divide/remainder operations, which is all the DUT's dispatch
+// contract permits.
+//
 // Besides checking results against an independent model, this bench
 // checks two structural properties the design claims:
 //
@@ -10,10 +20,9 @@
 //     including division by zero.  That is the WCET evidence quoted in
 //     the safety manual, so it is asserted rather than observed.
 //   * acc_q[32] is always zero at an iteration boundary (finding
-//     V0-A1): the multiply path writes it as zero, and the restoring
-//     division invariant keeps the partial remainder below the divisor.
-//     Lint reported the bit as unused; this turns the reasoning into a
-//     check that runs.
+//     V0-A1): the restoring division invariant keeps the partial
+//     remainder below the divisor.  Lint reported the bit as unused;
+//     this turns the reasoning into a check that runs.
 //
 //   +VEC=<file> +NVEC=<n> +MAXERR=<n>
 
@@ -78,7 +87,7 @@ module tb_multdiv;
   initial begin
     rst_n          = 1'b0;
     req            = 1'b0;
-    operator       = MD_MUL;
+    operator       = MD_DIV;
     op_a           = 32'b0;
     op_b           = 32'b0;
     errors         = 0;

@@ -129,6 +129,9 @@ module tb_safety;
   // Scenarios
   // ------------------------------------------------------------------
   int unsigned latency;
+  bit          e2e_landed;
+  logic [3:0]  e2e_be_s;
+  logic [6:0]  e2e_chk_s;
 
   initial begin
     errors = 0;
@@ -552,6 +555,115 @@ module tb_safety;
     report("cfg parity: an mtvec flip climbs out of the core",
            dut.u_safety.cfg_src_q[6] === 1'b1,
            $sformatf("cfg_src=%02x", dut.u_safety.cfg_src_q));
+
+    // The PMP arrays, guarded since 2026-09-02 (u_pmp_par beside the
+    // mtvec guard, after fi-pmp measured 90.8 % of array SEUs latent).
+    // Attribution is the core's CFG_SRC bit 6 -- the core exports ONE
+    // fault_cfg_par_o, so mtvec and PMP share the group; there is no
+    // finer per-array source bit.  One flip in each array proves both
+    // halves of the fold are wired.
+    do_reset();
+    repeat (50) @(posedge clk);
+    @(negedge clk);
+    dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[3][4] =
+        ~dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[3][4];
+    repeat (8) @(posedge clk);
+    report("cfg parity: a pmpcfg shadow flip latches FLT_CFG_PAR (core group)",
+           (dut.u_safety.status_q[13] === 1'b1) &&
+           (dut.u_safety.cfg_src_q[6] === 1'b1),
+           $sformatf("status=%08x cfg_src=%02x",
+                     dut.u_safety.status_q, dut.u_safety.cfg_src_q));
+
+    do_reset();
+    repeat (50) @(posedge clk);
+    @(negedge clk);
+    dut.g_lockstep.u_core.u_core_main.u_csr.pmpaddr_q[5][17] =
+        ~dut.g_lockstep.u_core.u_core_main.u_csr.pmpaddr_q[5][17];
+    repeat (8) @(posedge clk);
+    report("cfg parity: a pmpaddr flip latches FLT_CFG_PAR (core group)",
+           (dut.u_safety.status_q[13] === 1'b1) &&
+           (dut.u_safety.cfg_src_q[6] === 1'b1),
+           $sformatf("status=%08x cfg_src=%02x",
+                     dut.u_safety.status_q, dut.u_safety.cfg_src_q));
+
+    // The guard's own parity bit: a flip there mismatches the intact
+    // arrays, so it must self-detect through the same path -- measured
+    // here rather than asserted in a header.
+    do_reset();
+    repeat (50) @(posedge clk);
+    @(negedge clk);
+    dut.g_lockstep.u_core.u_core_main.u_csr.u_pmp_par.par_q =
+        ~dut.g_lockstep.u_core.u_core_main.u_csr.u_pmp_par.par_q;
+    repeat (8) @(posedge clk);
+    report("cfg parity: a flip of the PMP parity bit itself self-detects",
+           (dut.u_safety.status_q[13] === 1'b1) &&
+           (dut.u_safety.cfg_src_q[6] === 1'b1),
+           $sformatf("status=%08x cfg_src=%02x",
+                     dut.u_safety.status_q, dut.u_safety.cfg_src_q));
+
+    // ---- E2E, at system level (2026-09-02) --------------------------
+    // A one-clock transient on the D-TCM byte enables during a live
+    // write beat: the fault class that was the fi-e2e campaign's whole
+    // SDC budget until the fold grew to {data, addr, be}.  A force with
+    // a sampled value, released on the next negedge -- the same shape
+    // as tb_fi's injection -- so the endpoints and the safety
+    // controller all sample the corrupted beat exactly once.
+    do_reset();
+    repeat (50) @(posedge clk);
+    e2e_landed = 1'b0;
+    for (int w = 0; w < 5000 && !e2e_landed; w++) begin
+      @(negedge clk);
+      if (dut.dtcm_req && dut.dtcm_gnt && dut.dtcm_we) begin
+        e2e_be_s = dut.dtcm_be;
+        force dut.dtcm_be = e2e_be_s ^ 4'b0010;
+        @(negedge clk);
+        release dut.dtcm_be;
+        e2e_landed = 1'b1;
+      end
+    end
+    repeat (6) @(posedge clk);
+    report("E2E: a be flip on a live write beat latches FLT_E2E",
+           e2e_landed && (dut.u_safety.status_q[14] === 1'b1),
+           $sformatf("landed=%0d status=%08x",
+                     e2e_landed, dut.u_safety.status_q));
+
+    // The read direction: corrupt the check bits of a read response so
+    // the master-side endpoint flags (rd_err, the other half of f_e2e).
+    do_reset();
+    repeat (50) @(posedge clk);
+    e2e_landed = 1'b0;
+    for (int w = 0; w < 5000 && !e2e_landed; w++) begin
+      @(negedge clk);
+      // qualify on a READ response: a write's response strobe carries
+      // no checked payload, so a force landing there proves nothing
+      if (dut.data_rvalid && (dut.data_resp_itcm || dut.data_resp_dtcm) &&
+          dut.u_e2e_data.pend_q && !dut.u_e2e_data.we_q) begin
+        e2e_chk_s = dut.data_rd_chk;
+        force dut.data_rd_chk = e2e_chk_s ^ 7'b1;
+        @(negedge clk);
+        release dut.data_rd_chk;
+        e2e_landed = 1'b1;
+      end
+    end
+    repeat (6) @(posedge clk);
+    report("E2E: a corrupted read response latches FLT_E2E",
+           e2e_landed && (dut.u_safety.status_q[14] === 1'b1),
+           $sformatf("landed=%0d status=%08x",
+                     e2e_landed, dut.u_safety.status_q));
+
+    // ---- CLINT configuration parity, through the collector ----------
+    // block-clint proves the mechanism; this proves the wiring: the
+    // CLINT's cfg_err must arrive on its own CFG_SRC bit (bit 7).
+    do_reset();
+    repeat (50) @(posedge clk);
+    @(negedge clk);
+    dut.u_clint.mtimecmp_q[7] = ~dut.u_clint.mtimecmp_q[7];
+    repeat (6) @(posedge clk);
+    report("cfg parity: CLINT group attributed",
+           (dut.u_safety.status_q[13] === 1'b1) &&
+           (dut.u_safety.cfg_src_q[7] === 1'b1),
+           $sformatf("status=%08x cfg_src=%02x",
+                     dut.u_safety.status_q, dut.u_safety.cfg_src_q));
 
     // An external SoC fault must latch through the synchroniser into
     // its own status bit, and an external interrupt line must reach

@@ -197,6 +197,11 @@ _start:
     sw   t0, SFT_STATUS(s0)
 
     /* ---- 8: software fault trigger --------------------------------- */
+    /* pulse msafectrl[0] first: fault_out_en_o is a documented dead
+       pin at the subsystem (nothing consumes it), but it is core
+       state and toggle coverage (O7) is owed a transition on it */
+    csrwi 0x7c1, 1              /* msafectrl[0] set   */
+    csrwi 0x7c1, 0              /* msafectrl[0] clear */
     csrwi 0x7c1, 2              /* msafectrl[1] */
     nop
     nop

@@ -631,6 +631,13 @@ module cdriscv_32s_20_core
   assign start_lsu = instr_exec && !take_irq && !take_exc && lsu_req_dec;
   // Multiplies complete combinationally, so only a divide starts the
   // sequential unit and only a divide stalls the pipeline.
+  //
+  // STRUCTURAL: the `!md_is_mul` term (md_is_mul = ~md_op[2], i.e. the
+  // funct3 bit that separates multiplies from divides) is the ONLY
+  // path to md_req below, so u_multdiv can never receive a multiply
+  // encoding.  This is the invariant that let the dead multiply half
+  // of cdriscv_32s_20_multdiv be removed (2026-09-02); the divider
+  // carries a simulation-only check of the same contract at its req_i.
   assign start_md  = instr_exec && !take_irq && !take_exc && md_req_dec && !md_is_mul;
   // A Zcmp instruction enters the sequencer instead of retiring as the
   // nop the decompressor handed the decoder.  take_irq wins here: this
@@ -825,6 +832,11 @@ module cdriscv_32s_20_core
   //    EXC_INSTR_FAULT (mtval = mepc = the instruction's PC, the same
   //    convention as a fetch bus error) only if it is executed --
   //    a denied prefetch beyond a taken branch is flushed silently.
+  //
+  // The arrays themselves carry configuration parity inside the CSR
+  // file (u_pmp_par, added 2026-09-02 after the fault campaign
+  // measured 90.8 % of PMP-array SEUs as latent), reported on the same
+  // fault_cfg_par_o as the mtvec guard.
   //
   // Every region resets to OFF and this core is machine mode only, so
   // allow_o is 1 out of reset and behaviour is identical to the base

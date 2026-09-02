@@ -113,7 +113,7 @@ either detected by a mechanism that reports it, or bounded by one.
 
 | Path | Contents |
 |------|----------|
-| [rtl/core/](rtl/core/) | core: fetch, decode, ALU, multiply/divide, LSU, CSR, register file |
+| [rtl/core/](rtl/core/) | core: fetch, decode, ALU, multiplier, divider, LSU, CSR, register file |
 | [rtl/safety/](rtl/safety/) | lockstep, SEC-DED, safety controller, watchdog, clock monitor, memory BIST |
 | [rtl/bus/](rtl/bus/) | interconnect, TCM, APB bridge |
 | [rtl/periph/](rtl/periph/) | timer, interrupt controller, CLINT, AMS interface |
@@ -187,7 +187,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | Area | State | Evidence |
 |------|-------|----------|
 | Lint & structure | **clean** | `make lint lint-tb`, hard gate; waivers argued in [verif/lint/waivers.vlt](verif/lint/waivers.vlt) |
-| Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, mul/div, clock monitor, TCM, IF-stage equivalence |
+| Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, the divider (divide vectors only since 2026-09-02 — the dead multiply half of `multdiv` was removed; `block-mult` owns the multiplies), clock monitor, TCM, IF-stage equivalence |
 | New block benches | **pass, 2 040 074 checks** | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
 | Architectural suite | **143 of 143 pass**, incl. B and C | `make riscof` against Spike, on the RTL with Zcmp; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |

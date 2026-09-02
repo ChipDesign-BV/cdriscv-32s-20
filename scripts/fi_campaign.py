@@ -96,7 +96,7 @@ TARGETS = {
     35: "E2E link: D-TCM read request addr",
     36: "E2E link: data read response",
     37: "E2E link: fetch response",
-    38: "E2E gap: D-TCM byte enables",
+    38: "E2E link: D-TCM byte enables",
     39: "JTAG/debug observation state",
 }
 

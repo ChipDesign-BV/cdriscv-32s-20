@@ -670,6 +670,30 @@ verif/coverage_waivers.md; the standalone `block-multdiv` bench remains
 the evidence that the logic is correct, and the FMEDA should know the
 area is latent-fault surface with no functional observer.
 
+**Resolution (2026-09-02): the dead half was removed.** W5's own text
+named the honest fixes — parameterise the multiply path out, or accept
+and record the dead logic — and the first was taken: `multdiv` is now a
+pure 32-cycle restoring divider. Deleted with the multiply datapath:
+the mul iteration step, the `neg_res_q` sign-correction register, the
+MUL/MULH-group result arms and the multiply half of the operand
+preparation. The divide/remainder path is untouched (`block-multdiv`
+re-passes against the unchanged reference model — 2 400 divide
+vectors, constant 33-cycle latency, the `acc_q[32]` invariant — and
+`make cosim`/`riscof` re-verify the core). The dispatch was already
+structural — `start_md`, the only path to the divider's `req_i`, is
+gated on `!md_is_mul` — and that invariant is now stated as the
+module's contract with a simulation-only check behind it; `op_q`
+resets to `MD_DIV`, so no reset-encoding artefact of the kind this
+finding documents can recur. The multiply vectors left the multdiv
+bench with the logic they exercised (`block-mult` owns all four
+multiplies); W5 is closed because the waived line no longer exists.
+
+The recipe guard half of this finding is also closed: every
+pre-existing coverage run now captures its log and greps the verdict
+(the subsystem benches for `[TB] PASS`, the cosim runs for the absence
+of TIMEOUT/FAULT/ASSERTION — they carry no PASS verdict of their own),
+the same construction the pmp/zcmp runs introduced.
+
 **The coverage recipe's failure guard could not see a failing test.**
 Every system-test run in the `coverage:` target is joined to its `mv`
 with `&&`, and the recipe's own comment says a failing simulation is
@@ -725,3 +749,60 @@ of the measurements (the `be` gap, the PMP latency class) justify RTL
 changes already queued, and computing SPFM/LFM from RTL about to change
 would repeat the stale-input mistake this log keeps cataloguing. One
 FMEDA, on the final RTL, after the affected campaigns re-run.
+
+**Resolution (2026-09-02): both queued changes are in, and both
+campaigns re-measured on the changed RTL.**
+
+*E2E byte enables.* The fold is now `{data, addr, be}` — the four be
+bits run through the same (39,32) Hsiao encoder as `{28'h0, be}`, so
+each gets a distinct odd-weight column and no two be flips can cancel
+(the slice-XOR mistake the address fold was rebuilt for was not
+repeated). Both link endpoints hold the be of the outstanding access
+for the read path; the instruction master folds the constant `4'b1111`
+the bus drives for a fetch. Re-measured, same 400-SEU sweep, same
+seed:
+
+| fi-e2e (400 SEUs) | before | after |
+|---|---|---|
+| detected | 327 | **359** |
+| SDC | **10** (all be flips) | **0** |
+| silent (architecturally) | 63 | 41 |
+| be injections detected | 22 of 32 | **32 of 32**, median 7 cycles, worst 21 |
+
+The 22 formerly-silent be flips (lucky ones — a flipped be that
+happened not to change the committed bytes the workload later read)
+now detect too, which is why the silent column also shrank. Zero SDC
+is the campaign's acceptance criterion, met. `block-e2e` puts the
+block-level number on it: 20 000 single-bit and 15 019 two-bit be
+faults, zero escapes; `block-e2e-link` grew a be-corruption phase in
+each direction and two be mutants (the fold-drop and the live-vs-held
+phase), 10/10 killed; tb_safety forces a be flip on a live write beat
+at subsystem level and sees `FLT_E2E`.
+
+*PMP arrays.* `cfg_parity` now covers them: a second instance in the
+CSR file (`u_pmp_par`, 320 bits over the stored `pmpcfg`/`pmpaddr`
+arrays — after the WARL masking, so the capture cannot disagree with
+the registers it guards), reporting on the same `fault_cfg_par_o` as
+the mtvec guard, so both lockstep cores carry it and no subsystem port
+moved. Re-measured, same 448-SEU sweep, same seed:
+
+| fi-pmp (448 SEUs) | before | after |
+|---|---|---|
+| detected | 41 (9.2 %, lockstep, 25–48 cycles) | **448 (100 %)** |
+| latent | **407 (90.8 %)** | **0** |
+| detection latency | 25–48 cycles | **2 cycles flat** (median = 90th = worst) |
+
+The residual is exactly zero in the sweep; the guard's own state was
+probed separately rather than asserted safe — tb_safety flips
+`u_pmp_par.par_q` itself and the flip self-detects through the same
+FLT_CFG_PAR path (a parity bit that disagrees with intact arrays is a
+mismatch like any other). One mechanical note for reading the "which
+mechanism" table: every array flip now reports lockstep *as well as*
+configuration parity (448/448 each), because `fault_cfg_par_o` is part
+of the lockstep compare vector — the checker core's parity stays
+clean, so the main core's assertion itself diverges the pair. That is
+double-reporting of one detection, not two independent detections.
+
+The FMEDA can now be regenerated from `build/fi_campaign*.txt` — these
+eight campaigns are the final-RTL numbers (together with the O2
+marathon, which runs separately).

@@ -299,16 +299,26 @@ is not a gap in the stimulus — it is the definition of the mechanism.
 
 **What covers it instead.**
 
-* The *detection* is proven by `block-e2e-link` (11 286 checks, mutants
-  8/8, `scripts/mutate_e2e_link.py`), which puts corruptible wires
-  between the endpoints and drives every deterministic fault class.
+* The *detection* is proven by `block-e2e-link` (12 024 checks, mutants
+  10/10, `scripts/mutate_e2e_link.py`), which puts corruptible wires
+  between the endpoints and drives every deterministic fault class —
+  since 2026-09-02 including byte-enable corruption, the fold's third
+  field.
 * The *latching and reaction* path behind FLT_E2E is covered in the
   real subsystem: `safety_test` check 10 pulses bit 14 through the
   safety controller's INJECT register and requires STATUS[14] to latch
   and W1C-clear (functional point `cp_flt_e2e`, hit).
+* **Re-reviewed 2026-09-02** (the fold changed: byte enables joined
+  it). The waived situation is now also *simulated* in the subsystem:
+  `tb_safety` forces a be flip onto a live write beat and a corrupted
+  check onto a read response and requires FLT_E2E both times, so the
+  checker's own detection fires in a coverage-instrumented run rather
+  than being argued from the block bench alone. What remains waived is
+  only the exhaustive escape statistics, which stay `block-e2e`'s
+  business.
 
 **Status**: permanent, re-review only if the E2E fold or the fault
-wiring changes.
+wiring changes (last re-review 2026-09-02, for the be fold).
 
 ## W4 — `cdriscv_32s_20_core.sv:523-526`, fetch-target misalignment trap (2026-09-01)
 
@@ -342,36 +352,33 @@ to the decoder's immediate construction.
 **Status**: permanent while C is hard-wired; re-review if misa gains a
 writable C bit or a non-C variant forks from this RTL.
 
-## W5 — `cdriscv_32s_20_multdiv.sv:193`, the multiply result arms are dead in this integration (2026-09-01)
+## W5 — RESOLVED 2026-09-02: the dead multiply half was removed
 
-```systemverilog
-MD_MULH, MD_MULHSU,
-MD_MULHU:               result_o = product_corr[63:32];
-```
+W5 waived `cdriscv_32s_20_multdiv.sv:193` (the MULH/MULHSU/MULHU result
+arm), verified logic that variant 2's integration could never select:
+the core routes every multiply to the single-cycle
+`cdriscv_32s_20_mult`, so `multdiv`'s iterative multiply datapath was
+dead in-system — a latent-fault surface with no functional observer.
+The waiver carried a to-do ("revisit when `multdiv` is next touched"),
+and the revisit resolved it by taking the honest fix it named:
+**the multiply datapath was parameterised out — deleted — on
+2026-09-02**, together with its FSM service, sign-correction register
+and result arms. The waived line no longer exists.
 
-**Reached when** `multdiv` finishes a MULH/MULHSU/MULHU operation.
+What remains is a divider whose divide/remainder behaviour is
+byte-for-byte the inherited one (`block-multdiv` re-verified against
+the reference model, divide vectors only — the multiply vectors moved
+to `block-mult`'s jurisdiction with the logic they exercised), plus a
+structural contract: the core's dispatch (`start_md` gated by
+`!md_is_mul`) is the only path to `req_i`, and the module carries a
+simulation-only check that a multiply encoding reaching it is an
+error. The module's own defensive `default` arms are argued in W2a/W2b
+above like everyone else's.
 
-**Why simulation cannot reach it.** Variant 2 added the single-cycle
-`cdriscv_32s_20_mult` and the core routes **every** multiply to it
-(`start_md` fires only for `!md_is_mul`); `multdiv` now only ever sees
-divide and remainder operations, so its multiply datapath — the
-iterative half the FSM still implements — is unreachable from the
-instruction set. (Its `MD_MUL` arm still shows as covered, but only
-because `op_q` resets to that encoding and the arm is what the idle
-mux evaluates; that is an artefact, not evidence.)
-
-**What covers it instead.** `block-multdiv` drives the module
-standalone through all eight operations (mutation tested), so the arm
-is verified even though the subsystem cannot select it.
-
-**This is a finding as much as a waiver** — recorded in
-verification_findings_20.md §14: the module carries a verified but
-disconnected feature, which costs area and a latent-fault surface. The
-honest fixes are to parameterise the multiply path out of `multdiv` or
-to accept and record the dead logic; silently counting the line as
-covered is not one of them.
-
-**Status**: has a to-do — revisit when `multdiv` is next touched.
+**Status**: closed. Kept as a record because the finding
+(verification_findings_20.md §17 — a coverage report counting a dead
+feature as alive via its reset encoding) is worth more than the waiver
+was.
 
 ## Format for future entries
 

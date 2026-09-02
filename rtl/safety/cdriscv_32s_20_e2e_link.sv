@@ -4,21 +4,22 @@
 // cdriscv-32s-20 -- E2E protection endpoints for one bus link.
 //
 // cdriscv_32s_20_e2e.sv provides the generator/checker pair (7 check
-// bits over {data, addr}, both run through the proven (39,32) Hsiao
-// matrix).  This file wraps that pair into the two ENDPOINTS a
+// bits over {data, addr, be}, each field run through the proven
+// (39,32) Hsiao matrix).  This file wraps that pair into the two ENDPOINTS a
 // protected master<->slave link needs, so the interconnect itself stays
 // free of E2E logic and its muxing stays readable:
 //
 //   _m  master side: generates the write-path check bits over
-//       {wdata, addr} as the core presents them, holds the granted
-//       address until the response returns, and checks every read
-//       response from a protected slave against the check bits that
-//       slave generated.
+//       {wdata, addr, be} as the core presents them, holds the granted
+//       address and byte enables until the response returns, and
+//       checks every read response from a protected slave against the
+//       check bits that slave generated.
 //   _s  slave side: checks every delivered write against the check
 //       bits carried from the master -- a mismatch here means the
-//       interconnect corrupted the payload or the address on the way
-//       -- and generates the read-path check bits over {rdata, held
-//       address of the outstanding access}.
+//       interconnect corrupted the payload, the address or the byte
+//       enables on the way -- and generates the read-path check bits
+//       over {rdata, held address and byte enables of the outstanding
+//       access}.
 //
 // What this covers, and what it does not:
 //
@@ -31,10 +32,18 @@
 //   * The access-type bit is cross-checked: a read that the slave
 //     performed as a write (or vice versa) flags, because the slave
 //     only generates read check bits for what it saw as a read.
-//   * Byte enables are NOT covered: the e2e module's fold is fixed at
-//     {data, addr} and is not modified here.  A be corruption in
-//     flight changes which bytes a sub-word write commits; that gap is
-//     documented in doc/variant_status.md.
+//   * Byte enables ARE covered (closed 2026-09-02): the fold is
+//     {data, addr, be}, each be bit on its own distinct odd-weight
+//     Hsiao column (see cdriscv_32s_20_e2e.sv).  This was the one
+//     documented residual of the original {data, addr} fold, and the
+//     fault campaign turned it from a paragraph into a number -- ALL
+//     10 SDCs of the 400-SEU E2E sweep were be flips (10 of 32 be
+//     injections).  On the read path both ends fold the byte enables
+//     of the OUTSTANDING access (held at grant, like the address), so
+//     a be corrupted on the request wires flags on the response too;
+//     the instruction master, which drives no byte enables of its own,
+//     folds the constant 4'b1111 the bus presents on its behalf (see
+//     cdriscv_32s_20_bus: a slave port carries be=1111 for a fetch).
 //   * Sub-word writes ARE covered on the write path: the check is made
 //     on the delivered request wires, before the TCM's internal
 //     read-modify-write, and the full 32-bit wdata bus is compared as
@@ -63,6 +72,7 @@ module cdriscv_32s_20_e2e_link_m (
     // request, as presented by the master
     input  logic        gnt_i,           // this master's grant
     input  logic        we_i,
+    input  logic [3:0]  be_i,
     input  logic [31:0] addr_i,
     input  logic [31:0] wdata_i,
 
@@ -83,6 +93,7 @@ module cdriscv_32s_20_e2e_link_m (
   cdriscv_32s_20_e2e_gen u_wr_gen (
       .data_i (wdata_i),
       .addr_i (addr_i),
+      .be_i   (be_i),
       .chk_o  (wr_chk_o)
   );
 
@@ -93,17 +104,20 @@ module cdriscv_32s_20_e2e_link_m (
   // response that this master does not have outstanding -- e.g. one
   // draining across a warm reset -- is not checked.
   logic        pend_q, we_q;
+  logic [3:0]  be_q;
   logic [31:0] addr_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       pend_q <= 1'b0;
       we_q   <= 1'b0;
+      be_q   <= 4'b0;
       addr_q <= 32'b0;
     end else begin
       if (gnt_i) begin
         pend_q <= 1'b1;
         we_q   <= we_i;
+        be_q   <= be_i;
         addr_q <= addr_i;
       end else if (rvalid_i) begin
         pend_q <= 1'b0;
@@ -119,6 +133,7 @@ module cdriscv_32s_20_e2e_link_m (
   cdriscv_32s_20_e2e_chk u_rd_chk (
       .data_i (rdata_i),
       .addr_i (addr_q),
+      .be_i   (be_q),
       .chk_i  (rd_chk_i),
       .err_o  (rd_chk_err)
   );
@@ -148,6 +163,7 @@ module cdriscv_32s_20_e2e_link_s (
     input  logic        req_i,
     input  logic        gnt_i,
     input  logic        we_i,
+    input  logic [3:0]  be_i,
     input  logic [31:0] addr_i,
     input  logic [31:0] wdata_i,
 
@@ -171,6 +187,7 @@ module cdriscv_32s_20_e2e_link_s (
   cdriscv_32s_20_e2e_chk u_wr_chk (
       .data_i (wdata_i),
       .addr_i (addr_i),
+      .be_i   (be_i),
       .chk_i  (wr_chk_i),
       .err_o  (wr_chk_err)
   );
@@ -183,14 +200,17 @@ module cdriscv_32s_20_e2e_link_s (
   // not the master's -- is the point: it is what lets the master-side
   // checker see a wrong-address delivery.
   logic        we_q;
+  logic [3:0]  be_q;
   logic [31:0] addr_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       we_q   <= 1'b0;
+      be_q   <= 4'b0;
       addr_q <= 32'b0;
     end else if (req_i && gnt_i) begin
       we_q   <= we_i;
+      be_q   <= be_i;
       addr_q <= addr_i;
     end
   end
@@ -198,6 +218,7 @@ module cdriscv_32s_20_e2e_link_s (
   cdriscv_32s_20_e2e_gen u_rd_gen (
       .data_i (rdata_i),
       .addr_i (addr_q),
+      .be_i   (be_q),
       .chk_o  (rd_chk_o)
   );
 

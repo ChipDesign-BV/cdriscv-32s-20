@@ -5,16 +5,23 @@
 # Reference model and vector generator for cdriscv_32s_20_multdiv.
 #
 # One 99-bit hex word per vector: {op[2:0], a[31:0], b[31:0], expected}.
-# The model implements the RISC-V M extension semantics from the
-# specification, including the two special cases the specification calls
-# out: division by zero, and the signed overflow INT_MIN / -1.
+# The model implements the RISC-V M extension divide/remainder semantics
+# from the specification, including the two special cases the
+# specification calls out: division by zero, and the signed overflow
+# INT_MIN / -1.
+#
+# DIVIDES ONLY since 2026-09-02: the DUT's multiply half was removed
+# (it was dead in-system -- every multiply goes to the single-cycle
+# cdriscv_32s_20_mult, whose vectors live in block-mult's bench,
+# verif/block/mult/tb_mult.sv).  Feeding multiply encodings to a module
+# whose dispatch contract forbids them would test nothing real.
 
 import random
 import sys
 
 M = 0xFFFFFFFF
-OPS = {"MUL": 0, "MULH": 1, "MULHSU": 2, "MULHU": 3,
-       "DIV": 4, "DIVU": 5, "REM": 6, "REMU": 7}
+# op codes keep the funct3 encoding (bit 2 set = divide family)
+OPS = {"DIV": 4, "DIVU": 5, "REM": 6, "REMU": 7}
 
 
 def s32(x):
@@ -23,10 +30,6 @@ def s32(x):
 
 def model(op, a, b):
     sa, sb = s32(a), s32(b)
-    if op == "MUL":    return (sa * sb) & M
-    if op == "MULH":   return ((sa * sb) >> 32) & M
-    if op == "MULHU":  return ((a * b) >> 32) & M
-    if op == "MULHSU": return ((sa * b) >> 32) & M
     if op == "DIV":
         if b == 0:                       return M                 # -1
         if a == 0x80000000 and sb == -1: return 0x80000000        # overflow

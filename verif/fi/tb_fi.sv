@@ -232,12 +232,14 @@ module tb_fi;
                    ^ {16'b0, dut.u_irq_ctrl.enable_q}
                    ^ dut.u_timer.mtimecmp_q[31:0]
                    ^ {24'b0, dut.u_ams.chmask_q};
-        // The PMP arrays are protection state with NO parity guard
-        // (u_cfg_par in the CSR file folds mtvec only), so a fold of
-        // them is the only way this bench can tell "the workload
-        // passed" from "the workload passed and a protection region
-        // quietly changed underneath it".  Main core only: that is
-        // where the deposits land.
+        // A fold of the PMP arrays, kept even now that they carry
+        // their own configuration parity (u_pmp_par, 2026-09-02): the
+        // signature is this bench's INDEPENDENT view of "the workload
+        // passed but a protection region quietly changed underneath
+        // it", and keeping it lets the campaign distinguish a parity
+        // detection from a parity miss instead of trusting the
+        // mechanism under test to grade itself.  Main core only: that
+        // is where the deposits land.
         cfg_pmp = 32'b0;
         for (int pi = 0; pi < 8; pi++) begin
           cfg_pmp = cfg_pmp
@@ -416,11 +418,13 @@ module tb_fi;
           // Deliberately in ONE core: the checker core keeps the intact
           // configuration, so any upset whose effect ever reaches an
           // access decision diverges the cores and lockstep must catch
-          // it.  An upset whose region the workload never exercises
-          // has no observer at all -- the CSR file's parity covers
-          // mtvec, not these -- and lands as `latent` through the
-          // cfg_pmp fold above.  That latent count is a finding about
-          // the design, not about the bench.
+          // it.  Since 2026-09-02 the CSR file's configuration parity
+          // covers these arrays too (u_pmp_par), so an upset in ANY
+          // region -- exercised by the workload or not -- must now
+          // report as FLT_CFG_PAR within cycles.  Before that change
+          // 90.8 % of these injections were latent through the cfg_pmp
+          // fold below; that measurement is what justified the parity
+          // extension.
           30: dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[(bitpos / 8) % 8] =
               dut.g_lockstep.u_core.u_core_main.u_csr.pmpcfg_q[(bitpos / 8) % 8]
               ^ (8'b1 << (bitpos % 8));
@@ -528,9 +532,11 @@ module tb_fi;
   //       [39] data_rd_chk_valid (the carried access-type)
   //   37  fetch response:       [31:0] instr_rdata, [38:32] itcm_rd_chk,
   //       [39] itcm_rd_chk_valid
-  //   38  D-TCM byte enables:   [3:0] dtcm_be -- the DOCUMENTED gap in
-  //       the {data, addr} fold; this target exists to measure the
-  //       escape, not to claim coverage
+  //   38  D-TCM byte enables:   [3:0] dtcm_be -- covered since
+  //       2026-09-02, when the fold grew to {data, addr, be}.  This
+  //       target measured the gap first (all 10 SDCs of the sweep were
+  //       be flips) and now proves the closure: every be flip on a
+  //       live write beat must land in the detected column
   always @(negedge clk) begin
     if (e2e_forced) begin
       case (e2e_kind)

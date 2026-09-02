@@ -27,6 +27,7 @@ occurrence so a refactor cannot silently turn a mutant into a no-op.
 import subprocess, sys, os
 
 LINK = 'rtl/safety/cdriscv_32s_20_e2e_link.sv'
+E2E  = 'rtl/safety/cdriscv_32s_20_e2e.sv'
 
 # Each mutant: (file, [(old, new), ...], description).
 MUTANTS = [
@@ -67,14 +68,32 @@ MUTANTS = [
   "instead of the held address of the outstanding access)"),
 
  (LINK,
-  [("      if (gnt_i) begin\n        pend_q <= 1'b1;\n        we_q   <= we_i;\n        addr_q <= addr_i;",
-    "      if (rvalid_i) begin\n        pend_q <= 1'b1;\n        we_q   <= we_i;\n        addr_q <= addr_i;")],
+  [("      if (gnt_i) begin\n        pend_q <= 1'b1;\n        we_q   <= we_i;\n        be_q   <= be_i;\n        addr_q <= addr_i;",
+    "      if (rvalid_i) begin\n        pend_q <= 1'b1;\n        we_q   <= we_i;\n        be_q   <= be_i;\n        addr_q <= addr_i;")],
   "master holds the address at the response instead of at the grant"),
 
  (LINK,
   [("((!we_q && rd_chk_err) || (rd_chk_valid_i == we_q))",
     "((!we_q && rd_chk_err) || 1'b0)")],
   "access-type cross-check dropped (a read served as a write escapes)"),
+
+ # The 2026-09-02 change: byte enables joined the fold.  Dropping them
+ # inside the shared generator removes them at BOTH ends by construction
+ # (gen and chk instantiate the same module), so clean traffic and every
+ # data/address fault still pass -- only the be-corruption tests can
+ # kill it.  This is the regression guard for the former E2E gap that
+ # produced all 10 SDCs of the fault campaign's E2E sweep.
+ (E2E,
+  [(".data_i({28'h0, be_i}),",
+    ".data_i({28'h0, 4'h0}),")],
+  "byte enables dropped from the fold (both ends, via the shared "
+  "generator) -- the pre-2026-09-02 gap resurrected"),
+
+ (LINK,
+  [("  cdriscv_32s_20_e2e_gen u_rd_gen (\n      .data_i (rdata_i),\n      .addr_i (addr_q),\n      .be_i   (be_q),",
+    "  cdriscv_32s_20_e2e_gen u_rd_gen (\n      .data_i (rdata_i),\n      .addr_i (addr_q),\n      .be_i   (be_i),")],
+  "slave read generator folds the LIVE be wires instead of the held "
+  "byte enables of the outstanding access"),
 ]
 
 def run():
@@ -85,7 +104,7 @@ def run():
 ENV = dict(os.environ)
 ENV['PATH'] = '/foss/tools/iverilog/bin:' + ENV['PATH']
 
-orig = {LINK: open(LINK).read()}
+orig = {LINK: open(LINK).read(), E2E: open(E2E).read()}
 killed, survived = [], []
 try:
     # the unmutated design must pass, or nothing below means anything

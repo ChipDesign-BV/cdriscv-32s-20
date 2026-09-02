@@ -21,6 +21,14 @@
 // a second data ECC -- a decode fault changes the address, which
 // changes the expected syndrome, which the consumer sees as an error.
 //
+// Byte enables are folded in too (added 2026-09-02).  The fault
+// injection campaign measured why: of 400 systematic SEUs on the
+// protected links, every silent data corruption -- all 10 of them --
+// was a byte-enable flip (10 of the 32 be injections), the one request
+// wire the original {data, addr} fold excluded.  A be corrupted in
+// flight changes which bytes a sub-word write commits, with the data
+// and address arriving intact, so no other mechanism can see it.
+//
 // Reuses the (39,32) Hsiao code the TCMs already use, so the same
 // generator, the same proof and the same block-level bench apply.
 //
@@ -34,6 +42,7 @@
 module cdriscv_32s_20_e2e_gen (
     input  logic [31:0] data_i,
     input  logic [31:0] addr_i,
+    input  logic [3:0]  be_i,
     output logic [6:0]  chk_o
 );
   logic [6:0] data_chk;
@@ -58,17 +67,41 @@ module cdriscv_32s_20_e2e_gen (
   logic [31:0] addr_cw_unused;
   cdriscv_32s_20_ecc_enc u_addr_enc (.data_i(addr_i), .cw_o({addr_chk, addr_cw_unused}));
 
-  assign chk_o = data_chk ^ addr_chk;
+  // The byte enables get the same treatment, for the same reason: the
+  // four be bits run as {28'h0, be} through the same proven Hsiao
+  // encoder, so each be bit lands on a distinct odd-weight column of
+  // the same matrix.  Odd weight means a single be flip always changes
+  // the check bits; distinct columns mean no two be flips can cancel
+  // each other -- exactly the no-two-bits-cancel property the address
+  // fold has, and NOT the property a naive slice-XOR would have given.
+  // (The zero padding costs nothing: constant inputs fold away in
+  // synthesis, leaving four XOR taps.)
+  //
+  // Fault classes that pair a be bit with the SAME-index data or
+  // address bit share a column across fields and would cancel; the
+  // pre-existing data^addr fold has the identical cross-field
+  // characteristic and it is accepted for the same reason -- those
+  // are physically unrelated wires in different request phases, not a
+  // plausible common-cause pair, and the block bench (tb_e2e) injects
+  // faults confined to one field, matching the fault model.
+  logic [6:0]  be_chk;
+  logic [31:0] be_cw_unused;
+  cdriscv_32s_20_ecc_enc u_be_enc (.data_i({28'h0, be_i}),
+                                   .cw_o({be_chk, be_cw_unused}));
+
+  assign chk_o = data_chk ^ addr_chk ^ be_chk;
 endmodule
 
 
 module cdriscv_32s_20_e2e_chk (
     input  logic [31:0] data_i,
     input  logic [31:0] addr_i,
+    input  logic [3:0]  be_i,
     input  logic [6:0]  chk_i,
     output logic        err_o
 );
   logic [6:0] expect_chk;
-  cdriscv_32s_20_e2e_gen u_gen (.data_i(data_i), .addr_i(addr_i), .chk_o(expect_chk));
+  cdriscv_32s_20_e2e_gen u_gen (.data_i(data_i), .addr_i(addr_i), .be_i(be_i),
+                                .chk_o(expect_chk));
   assign err_o = (expect_chk != chk_i);
 endmodule
