@@ -526,10 +526,23 @@ Largest first.
    `ref_clk_i` domain was unconstrained, so it is a comparison point and
    not a fallback.
 
-9. **Coverage (O6/O7) is done for this RTL; fault injection and the
-   FMEDA have not been re-run.** `make coverage` (2026-09-01, on the
-   complete RTL): RTL line **95.8 %** measured (568 of 593), **100 %
-   with the 25 reviewed waivers** in
+9. **Coverage (O6/O7), fault injection and the FMEDA are all this
+   variant's now.** On the final RTL (2026-09-02, post the three
+   measured-finding fixes): line **96.1 %** measured / **100 % with
+   reviewed waivers**, toggle **96.3 %** (the ≥ 95 % sub-criterion is
+   met), functional **100 % of 92 points**. Eight FI campaigns
+   measured every claimed mechanism; two findings went back into the
+   RTL and were re-measured closed (E2E byte enables 10 SDCs → 0;
+   PMP arrays 90.8 % latent → 448/448 detected at 2 cycles). The
+   FMEDA ([fmeda.md](fmeda.md), 2026-09-02): **SPFM 99.50 %, LFM
+   92.66 %, residual 1.22 FIT** — both past the ASIL D thresholds *on
+   assumed base rates*, populations from the v2full netlist plus RTL
+   elaboration for the blocks that post-date it, to be refreshed from
+   the chip netlist after the full-chip harden.
+
+   The coverage machinery that made the numbers honest (2026-09-01
+   pass): line was 95.8 % measured (568 of 593) with **25 reviewed
+   waivers** in
    [verif/coverage_waivers.md](../verif/coverage_waivers.md) (W2: 20
    defensive default arms, re-reviewed and renumbered; W4: the
    fetch-misalign trap C makes unreachable; W5: `multdiv`'s dead
