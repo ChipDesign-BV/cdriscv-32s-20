@@ -16,7 +16,7 @@
 #                elaboration for the three blocks the netlist predates
 #                (see the provenance note below); and diagnostic
 #                coverage from THIS variant's fault-injection campaigns
-#                (build/fi_campaign*.txt, 2026-09-01: workloads A-D
+#                (build/fi_campaign*.txt, 2026-09-02/04: workloads A-D
 #                re-run on this RTL plus the E2E / CLINT / PMP / Zcmp /
 #                debug sweeps).
 #   ASSUMED   -- base failure rates.  No foundry FIT data exists for
@@ -97,7 +97,7 @@ TOTAL_FF     = TOTAL_FF_NETLIST + FF_CLINT + FF_E2E + FF_ZCMP_SEQ
 ELEMENTS = [
     # name,                 ffs,  safe, dc_seu, dc_mbu, dc_perm, mechanism
     ("core pair (lockstep)", 3386, 0.45, 0.99,  0.99,  0.99,
-     "DCLS; this variant's campaigns A-D: 1013 injections into core "
+     "DCLS; this variant's campaigns A-D: 1156 usable injections into core "
      "state, 0 SDC with status clean, every non-masked upset latched "
      "(lockstep median 2 cycles).  Includes multdiv's dead multiply "
      "arm (finding s17/W5): structurally unreachable in-system, its "
@@ -288,7 +288,7 @@ each labeled throughout:
   endpoints ({ff_e2e}) and the Zcmp sequencer ({ff_zcmp}), which
   **postdate the v2full harden (2026-08-30)** and exist only in RTL
   until the next harden; and diagnostic coverage from this variant's
-  fault-injection campaigns (2026-09-01: workloads A-D re-run, plus
+  fault-injection campaigns (2026-09-02/04: workloads A-D re-run, plus
   the systematic E2E / CLINT / PMP / Zcmp / debug sweeps --
   `build/fi_campaign*.txt`).
 * **ASSUMED** -- base failure rates. **No foundry reliability data for

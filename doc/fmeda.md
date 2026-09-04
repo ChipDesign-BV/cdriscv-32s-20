@@ -17,13 +17,9 @@ each labeled throughout:
   instances, die 3.63 mm² -- re-read from that run's `metrics.json`),
   plus RTL elaboration for the CLINT (197), the E2E link
   endpoints (134) and the Zcmp sequencer (12), which
-  **postdate the v2full harden (2026-08-30)** and existed only in RTL
-  at computation time (the full-chip `chip1` netlist has since been
-  produced, 2026-09-03/04 — re-running the script against it is the
-  open population refresh tracked in
-  [variant_status.md](variant_status.md) item 9); and diagnostic
-  coverage from this variant's
-  fault-injection campaigns (2026-09-01: workloads A-D re-run, plus
+  **postdate the v2full harden (2026-08-30)** and exist only in RTL
+  until the next harden; and diagnostic coverage from this variant's
+  fault-injection campaigns (2026-09-02/04: workloads A-D re-run, plus
   the systematic E2E / CLINT / PMP / Zcmp / debug sweeps --
   `build/fi_campaign*.txt`).
 * **ASSUMED** -- base failure rates. **No foundry reliability data for
