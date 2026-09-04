@@ -18,6 +18,16 @@ TO=${2:-}
 export PATH=/foss/tools/verilator/bin:/foss/tools/openroad-librelane/bin:/foss/tools/magic/bin:/foss/tools/netgen/bin:/foss/tools/iverilog/bin:/foss/tools/klayout:/foss/tools/bin:$PATH
 EXTRA=()
 [ -n "$TO" ] && EXTRA+=(--to "$TO")
-librelane --manual-pdk --pdk-root /foss/pdks --run-tag "$TAG" "${EXTRA[@]}" \
+# Seal ring and density fill are skipped deliberately:
+#  - the PDK sealring PCell emits INT32_MIN edge-arm coordinates on all
+#    20 layers for EVERY size (reproduce: sealring.py -rd width=1300.0
+#    -rd height=1300.0), and its output crashes the density filler;
+#  - the density filler itself OOMs on this 8.4 mm^2 die (>13 GB for a
+#    single fill area).  Both are tapeout-preparation geometry, added
+#    post-fix without floorplan impact (PAD_EDGE_SPACING reserves the
+#    ring allowance).  See doc/chip.md and findings 19.
+SKIPS=(--skip KLayout.SealRing --skip KLayout.Filler
+       --skip KLayout.Density --skip Checker.KLayoutDensity)
+librelane --manual-pdk --pdk-root /foss/pdks --run-tag "$TAG" "${EXTRA[@]}" "${SKIPS[@]}" \
           config_chip.json > "librelane_chip_$TAG.log" 2>&1
 echo "[$TAG] exited $? at $(date +%H:%M:%S)"

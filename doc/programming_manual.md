@@ -3,11 +3,11 @@
 > [!NOTE]
 > **This document describes cdriscv-32s-20.** It began as variant 1's and
 > has been revised for this variant — the port list, the clock domains,
-> the register map and the assumptions of use are this design's. What it
-> does **not** carry is variant 1's evidence: no signoff gate is met in
-> this repository, and any measured figure quoted from variant 1 is
-> labelled as such where it appears. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> the register map and the assumptions of use are this design's. The evidence
+> behind it is this variant's own — O1–O7 and O9 are met on this
+> repository's runs, O8 (gate level) is open — and any measured figure
+> still quoted from variant 1 is labelled as such where it appears. See
+> [variant_status.md](variant_status.md) for what holds here.
 
 The firmware developer's view: what the machine looks like from
 software, how to trap, how to drive each peripheral, and what the

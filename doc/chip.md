@@ -7,9 +7,19 @@ generated/checked by `scripts/gen_padring.py`, which asserts the subsystem port
 list from the RTL and the pad geometry from the PDK LEF before emitting
 anything.
 
-**Status: harden NOT yet run to GDS.** A bounded probe (tag `chipfp1`,
-synthesis → floorplan → `OpenROAD.PadRing`) validates that the ring places;
-routing, DRC and LVS are a later step with the final RTL.
+**Status: hardened to GDS and timing-closed** (`flow/runs/chip1`,
+2026-09-03/04) — see the results section below for the gate table, the two
+deliberately deferred items (seal ring, density fill) and the two checks
+still open (KLayout DRC re-run, magic overlap classification).
+
+<img src="img/cdriscv_chip_gds.png" width="50%"
+     alt="cdriscv_32s_20_chip GDS, 2400 x 3500 um on IHP SG13G2">
+
+*`cdriscv_32s_20_chip` as streamed out by run `chip1` — 2400 × 3500 µm on
+IHP SG13G2. The orange perimeter is the 99-pad `sg13g2_io` ring, the yellow
+blocks are the six TCM SRAM macros (I-TCM south, D-TCM north), the purple
+field is the subsystem logic. The gap between ring and die edge is the
+140 µm `PAD_EDGE_SPACING` reserved for the deferred seal ring.*
 
 ## Die
 
@@ -70,9 +80,72 @@ IR-drop-driven addition of further pairs is a post-layout decision.
   `config_chip.json` (placing it would abort the pad step). Assembly-level
   decision, later.
 
-## Floorplan probe (chipfp1)
+## Hardening result (run `chip1`, 2026-09-03/04)
 
-![chip floorplan](img/cdriscv_chip_floorplan.png)
+Two bounded probes preceded the harden: `chipfp1` (synthesis → floorplan →
+`OpenROAD.PadRing`) proved the ring places, and `chipfp2` (through tap/endcap
+insertion) proved the full geometry — 370 IO-library cells placed FIXED, die
+exactly as computed. What neither could prove is that the chip's port
+terminals land *on* the pads: the first full run died at global placement
+with GPL-0326 because `PAD_PLACE_IO_TERMINALS` had never been set
+(`flow/pad_cfg_chip.tcl` now sets it; findings
+[§19](verification_findings_20.md)).
+
+The full harden then closed. Timing knobs came from the `probe2` experiment
+on the subsystem — `sg13g2_buf_4` repair buffers plus larger resizer setup
+margins took the fetch critical path from −0.719 ns to −0.059 ns — and
+`chip1` runs buf_4 with 0.35 ns margins (`flow/config_chip.json`).
+
+| Gate | Result |
+|---|---|
+| **Setup, slow 1.08 V/125 °C** | **+0.373 ns**, TNS 0, 0 violations |
+| Setup, typ / fast | +15.35 / +23.91 ns |
+| Hold, all corners | clean — worst +0.139 ns (fast), TNS 0 |
+| Detailed routing | **0 DRC violations** |
+| Antenna (OpenROAD + KLayout) | **0** |
+| GDS XOR (Magic vs KLayout) | **0 differences** |
+| **LVS** (netgen) | **circuits match uniquely** — **161 742 devices, 86 330 nets**, pad ring included |
+
+(All numbers from `flow/runs/chip1/final/metrics.json` and
+`72-netgen-lvs/reports/lvs.netgen.rpt`.)
+
+### Deferred, deliberately, with evidence
+
+* **Seal ring.** The PDK's sealring PCell emits INT32_MIN edge-arm
+  coordinates on all 20 of its layers, for **every** size tried — including
+  the PDK docstring's own example (reproduce:
+  `klayout -n sg13g2 -zz -r $PDK/libs.tech/klayout/tech/scripts/sealring.py
+  -rd width=1300.0 -rd height=1300.0 -rd output=x.gds`). The corrupt
+  geometry then crashes the density filler
+  (`dbPolygonGenerators.cc … m_open.empty()`, log in
+  `chip1/66-klayout-filler/`). A second, upstream-reportable defect:
+  LibreLane's `KLayout.SealRing` with the script variable nulled *runs*
+  with a `None` path instead of skipping (`chip1/67-klayout-sealring/`).
+  The die reserves the full 140 µm allowance (`PAD_EDGE_SPACING`), so a
+  fixed ring drops in later **without a floorplan change**. The skip is
+  encoded in `flow/run_chip.sh` with this reasoning attached.
+* **Density fill.** The PDK filler OOMs (>13 GB) on the 8.4 mm² die even
+  one fill area at a time; deferred like the ring. For scale: the Classic
+  subsystem flow never ran metal fill either, so this is not a capability
+  the smaller runs had and this one lost.
+
+### Still open — evidence, not verdicts
+
+* **KLayout signoff DRC** is re-running on the corrected (no-sealring)
+  GDS. The first pass consumed the flow's last completed state — the
+  sealring-corrupted GDS from step 65 (`68-klayout-drc/state_in.json`
+  names it) — and its **60 errors trace entirely to that corrupt
+  geometry**: 5 `Seal.n` plus off-grid/angle/via artifacts at the
+  staircase coordinates. That pass is an invalid check, not a verdict;
+  findings [§19](verification_findings_20.md) carries the stale-state
+  lesson.
+* **956 magic "illegal overlap" messages**, all of the form
+  `obsm* vs metal* types do not connect` (950 on metal7, 6 on metal3):
+  the IO cells' LEF **obstruction** layers against routed metal — an
+  abstraction artifact, not drawn shorts, and LVS matched uniquely
+  through the same magic extraction. Classification is pending a
+  decision: exclude the IO cells from the check the way the SRAMs are,
+  or waive with analysis.
 
 ## Pinout table
 

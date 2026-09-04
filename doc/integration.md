@@ -3,11 +3,11 @@
 > [!NOTE]
 > **This document describes cdriscv-32s-20.** It began as variant 1's and
 > has been revised for this variant — the port list, the clock domains,
-> the register map and the assumptions of use are this design's. What it
-> does **not** carry is variant 1's evidence: no signoff gate is met in
-> this repository, and any measured figure quoted from variant 1 is
-> labelled as such where it appears. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> the register map and the assumptions of use are this design's. The evidence
+> behind it is this variant's own — O1–O7 and O9 are met on this
+> repository's runs, O8 (gate level) is open — and any measured figure
+> still quoted from variant 1 is labelled as such where it appears. See
+> [variant_status.md](variant_status.md) for what holds here.
 
 Everything an SoC team needs to instantiate, constrain, harden, boot
 and sign off this subsystem. Companion documents, referenced rather
@@ -254,6 +254,14 @@ mismatch, corrupts a TCM code word), `INJECT` (pulses fault bits), and
 the March C- memory BIST.
 
 ## 8. Physical integration (RTL2GDS)
+
+> **This variant's own physical results supersede the figures below
+> where they differ**: subsystem harden `v2full` and the timing-closed
+> full-chip harden `chip1` are summarised in
+> [variant_status.md](variant_status.md) §3.8 and [chip.md](chip.md).
+> The flow walkthrough, macro/PDN mechanics and integration advice in
+> this section carry over unchanged; the measured numbers are variant
+> 1's and are labelled as such.
 
 <img src="img/cdriscv_32s_20_subsys_gds.png" width="50%"
      alt="Hardened cdriscv_32s_20_subsys_hard, 1330 x 2521 um on IHP SG13G2">

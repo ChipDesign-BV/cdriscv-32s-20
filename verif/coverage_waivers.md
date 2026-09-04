@@ -6,9 +6,9 @@ that a line cannot be reached by simulation *and* that something else
 covers it — not a note that nobody got round to it.
 
 Anything not listed here is a gap to be closed by a test, and the
-current list of those is in `verification_findings.md`.
+current list of those is in `doc/verification_findings_20.md`.
 
-## W2 — defensive `default` arms over constrained selectors (2026-08-21, re-reviewed 2026-09-01)
+## W2 — defensive `default` arms over constrained selectors (2026-08-21, re-reviewed 2026-09-01, reconciled 2026-09-02)
 
 **Re-reviewed against the variant-2 RTL on 2026-09-01**, after the O6/O7
 re-run: every line number below was re-derived from the fresh annotated
@@ -20,9 +20,20 @@ that needed actual review —
 the selectors** and their arguments have been re-made below. W4 and W5
 were added in the same review.
 
-With W2, W4 and W5 applied, line coverage is 100 % (593 of 593);
-without them, 95.8 % (568 of 593). The waived total is 25 lines:
-20 here, 4 in W4, 1 in W5.
+**Re-reconciled against the 2026-09-02 final-RTL run** (the three
+measured-finding fixes, revision `2ecf4b2`): with W2 and W4 applied,
+line coverage is 100 % (584 of 584); without them, 96.1 % (561 of
+584). The waived total is **23 lines: 19 here (7 in W2a, 12 in W2b),
+4 in W4**. Two lines left the list with that revision: W5's (the
+waived line was deleted with `multdiv`'s dead multiply half — W5 is
+closed below) and W2b's multdiv result-mux default, which the
+2026-09-02 annotated database records as covered (26 hits) in the
+rewritten divider — no longer an exclusion, so no longer waived.
+Line numbers below are from the 2026-09-02 annotated database
+(`build/cov/ann_line/`).
+
+*The 2026-09-01 reconciliation, for the record: 593 lines, 95.8 %
+measured (568 of 593), 25 waived (20 in W2, 4 in W4, 1 in W5).*
 
 ### A correction: this waiver was wrong when first written
 
@@ -54,11 +65,11 @@ part of it.
 |------|------|------|
 | `cdriscv_32s_20_ams_if.sv` | 161 | |
 | `cdriscv_32s_20_apb_bridge.sv` | 73 | |
-| `cdriscv_32s_20_core.sv` | 675 | enum is now 3 bits with **5 of 8** values used (ST_SEQ) |
+| `cdriscv_32s_20_core.sv` | 682 | enum is now 3 bits with **5 of 8** values used (ST_SEQ) |
 | `cdriscv_32s_20_jtag_tap.sv` | 85 | new 2026-09-01; 16 of 16 values used |
 | `cdriscv_32s_20_lsu.sv` | 105 | |
 | `cdriscv_32s_20_mbist.sv` | 132 | |
-| `cdriscv_32s_20_multdiv.sv` | 116 | |
+| `cdriscv_32s_20_multdiv.sv` | 126 | divider-only since 2026-09-02 (W5) |
 
 Each is `default: state_d = <IDLE>;` in a `unique case (state_q)` whose
 register is only ever assigned members of its enum, so no sequence of
@@ -162,9 +173,8 @@ from the subsystem netlist was abandoned for exactly that reason.
 | `cdriscv_32s_20_decompress.sv` | 220 | `instr[11:10]`, all four listed | no |
 | `cdriscv_32s_20_decompress.sv` | 226 | quadrant-01 `funct3`, all eight listed | no |
 | `cdriscv_32s_20_core.sv` | 333, 344 | operand select enums, 3 of 4 values used | yes — see below |
-| `cdriscv_32s_20_core.sv` | 745 | writeback select enum, all four listed | no |
+| `cdriscv_32s_20_core.sv` | 752 | writeback select enum, all four listed | no |
 | `cdriscv_32s_20_lsu.sv` | 81, 143 | `addr[1:0]`, all four values listed | no |
-| `cdriscv_32s_20_multdiv.sv` | 196 | mul/div operation enum, all eight listed | no |
 | `cdriscv_32s_20_pmp.sv` | 107 | `pmpcfg.A`, all four values listed (OFF/TOR/NA4/NAPOT) | no |
 | `cdriscv_32s_20_pmp.sv` | 116 | access type enum, 3 of 4 values used | yes — see below |
 

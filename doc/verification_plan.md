@@ -2,19 +2,24 @@
 
 > [!NOTE]
 > **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> and describing variant 1.** Every measured result *in this document*
+> was produced on variant 1; cdriscv-32s-20's own results — which now
+> cover every objective except O8 — live in
+> [variant_status.md](variant_status.md), not here.
 
-> **This plan's results are variant 1's.** The objectives O1–O9 below are
-> the right objectives for this variant too, and
-> [variant_status.md](variant_status.md) tracks them against it: O1 and
-> O2 are met **in this repository** (114 of 114 architectural tests
-> including 29 B tests, and 1 015 480 871 co-simulated instructions
-> against one frozen revision). The rest — coverage, fault injection,
-> the FMEDA, and a physical implementation of the current RTL — are not.
-> Read every "**met**" below as *met by variant 1*.
+> **This plan's results are variant 1's.** The objectives O1–O9 below
+> are the right objectives for this variant too, and
+> [variant_status.md](variant_status.md) tracks them against it. As of
+> 2026-09-04, **O1–O7 and O9 are met in this repository** on this
+> variant's own runs: 143 of 143 architectural tests, 1 015 480 871
+> co-simulated instructions against the final revision `2ecf4b2`, line
+> 96.1 % / 100 % waived, toggle 96.3 %, functional 92 of 92, eight
+> fault-injection campaigns, and an FMEDA (SPFM 99.50 % / LFM 92.66 %
+> on assumed rates, [fmeda.md](fmeda.md)). The physical implementation
+> is timing-closed at chip level ([chip.md](chip.md)). **O8 —
+> gate-level simulation — is not re-run** and awaits work on the
+> `chip1` netlist. Read every "**met**" in the table below as *met by
+> variant 1*.
 
 > **Variant 1 status, 2026-08-25: every objective O1–O9 is met** — see the
 > objective table below for each criterion's result, the README for
@@ -24,9 +29,9 @@
 >
 > Scope: variant 1 as it stood — RV32IM_Zicsr_Zifencei, single or
 > dual core. This variant's ISA is
-> `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb` and it carries a PMP checker
-> and a JTAG port, so each objective has to be re-established rather
-> than inherited. Possible
+> `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp` and it carries PMP (data
+> and fetch), a CLINT, E2E bus protection and a JTAG port, so each
+> objective had to be re-established rather than inherited. Possible
 > future ISA extensions are explicitly out of scope here and add their
 > own verification work. Physical implementation is likewise outside
 > these objectives; the RTL2GDS result is recorded in V45 and

@@ -280,6 +280,7 @@
     "pad_iovdd_w",
     "pad_iovss_w"
   ],
+  "//sealring": "DELIBERATELY DISABLED (2026-09-03): the PDK sealring PCell emits INT32_MIN far-coordinates for its edge arms on ALL 20 layers, for every size including the PDK docstring example (reproduce: sealring.py -rd width=1300.0 -rd height=1300.0), and the corrupt geometry crashes the density filler (KLayout dbPolygonGenerators m_open.empty). The die reserves the 140 um allowance via PAD_EDGE_SPACING, so the ring can be added post-fix without floorplan changes. Reported upstream; see doc/chip.md and verification_findings_20.md.",
   "PAD_CFG": "dir::pad_cfg_chip.tcl",
   "PAD_SPACING_MULTIPLE": 2,
   "//pads": "Pad instance lists are ordered: ascending x for south/north, ascending y for east/west.  Placement coordinates are computed by OpenROAD.PadRing (even spacing); this list order IS the placement data.",

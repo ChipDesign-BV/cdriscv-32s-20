@@ -1204,7 +1204,9 @@ $(BUILD)/tb_fi.vvp: $(RTL) verif/fi/tb_fi.sv | $(BUILD)
 # detected / silent-ok / silent data corruption / hang.  The SDC count
 # is the one that matters: a fault that changes the result and reports
 # nothing is what a safety mechanism exists to prevent.
-fi: fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
+# fi-check (workload D) was missing from this list and silently never
+# re-ran on the new RTL while the FMEDA claimed it had (2026-09-04).
+fi: fi-arith fi-trap fi-mem fi-check fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
 
 # --golden-cfg is the safety configuration signature from a fault-free
 # run.  Without it a fault that switches a detector off is reported as

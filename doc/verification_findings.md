@@ -2,10 +2,10 @@
 
 > [!NOTE]
 > **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
-> and describing variant 1.** Every measured result below was produced on
-> variant 1 and has **not** been reproduced for cdriscv-32s-20, whose ISA
-> is wider and whose core carries three replaced modules. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> and describing variant 1.** Every measured result *in this log* was
+> produced on variant 1. cdriscv-32s-20's own findings are in
+> [verification_findings_20.md](verification_findings_20.md), and its
+> per-objective status in [variant_status.md](variant_status.md).
 
 Running log of everything verification has turned up, newest phase
 first. Each finding records what was wrong, how it was found, and what

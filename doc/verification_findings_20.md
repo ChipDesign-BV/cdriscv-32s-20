@@ -604,6 +604,17 @@ corner, and LVS **matching uniquely** across 153 626 devices and 79 499
 nets. The design is physically implementable at this die size; what it
 is not, yet, is timing-closed at 25 MHz across PVT.
 
+**Resolution (2026-09-03/04): the experiment was run, and the buffering
+observation held.** `probe2` re-hardened the subsystem with
+`SYNTH_BUFFER_CELL = sg13g2_buf_4` and 0.3 ns resizer setup margins and
+the slow-corner slack moved from −0.719 ns to **−0.059 ns** — the buf_1
+chains were worth essentially the whole violation. The full-chip harden
+(`chip1`, [chip.md](chip.md)) carries the same buffer with the
+margins at 0.35 ns and **closes**: setup **+0.373 ns** at the slow
+corner, TNS 0, hold +0.139 ns, on the 2400 × 3500 µm pad-ring die. No
+RTL changed; the durable fetch-path restructuring remains unspent
+margin for a future variant rather than a debt of this one.
+
 ## 16. Zcmp: what the tools settled that memory would have got wrong
 
 The Zcmp sequencer went in against ground truth taken from the
@@ -806,3 +817,83 @@ double-reporting of one detection, not two independent detections.
 The FMEDA can now be regenerated from `build/fi_campaign*.txt` — these
 eight campaigns are the final-RTL numbers (together with the O2
 marathon, which runs separately).
+
+## 19. The full-chip harden: two PDK bugs, one stale check, one gap in a bounded proof
+
+The chip-level run (`flow/runs/chip1`, [chip.md](chip.md)) closed
+every gate it was allowed to run — setup +0.373 ns slow, hold +0.139 ns,
+route DRC 0, XOR 0, antenna 0, LVS matching uniquely across 161 742
+devices and 86 330 nets *including the pad ring*. What this entry
+records is the three things on the way there that would have been
+mis-diagnosed by a less suspicious reading.
+
+**The seal ring is corrupt at the source, and the first suspect was
+us.** `KLayout.SealRing` produced a GDS whose ring arms carried
+INT32_MIN coordinates — a staircase of impossible polygons on all 20
+sealring layers. The natural first theory was our die: 2400 × 3500 µm
+is an unusual aspect ratio, and an overflow in the PCell's arm
+arithmetic for *this* size would be a plausible story. The theory
+lasted exactly one experiment: the PDK docstring's own example size
+reproduces it —
+
+```sh
+klayout -n sg13g2 -zz -r $PDK/libs.tech/klayout/tech/scripts/sealring.py \
+        -rd width=1300.0 -rd height=1300.0 -rd output=x.gds
+```
+
+— INT32_MIN arms on every layer, for every size tried. The PCell is
+broken for everyone, upstream-reportable, and no property of this
+floorplan is involved. The corrupt geometry is not inert either: it
+crashes the density filler
+(`dbPolygonGenerators.cc:394 m_open.empty()`,
+`chip1/66-klayout-filler/`). A second reportable defect sits next to
+it: nulling the LibreLane sealring script variable makes the step *run*
+with a `None` path (`Unable to open file: …/flow/None`,
+`chip1/67-klayout-sealring/`) instead of skipping. Both steps are now
+skipped explicitly in `flow/run_chip.sh`, with the evidence in the
+comment; the die keeps the 140 µm `PAD_EDGE_SPACING` allowance so a
+fixed ring lands later without touching the floorplan. The filler was
+deferred for its own reason too — it OOMs above 13 GB on the 8.4 mm²
+die even one fill area at a time.
+
+**A resumed flow's checks consume the last completed state.** The DRC
+step of the resumed run judged not the freshly streamed-out GDS but the
+sealring-corrupted one from step 65 — `68-klayout-drc/state_in.json`
+says so in one line, read only after the fact. Its 60 errors decompose
+entirely into that geometry: 5 `Seal.n` plus paired off-grid /
+non-orthogonal / via artifacts at the staircase coordinates, on layers
+the router never touches. Sixty errors on a design whose subsystem DRCs
+clean *smelled* wrong, but the smell is not the lesson; the lesson is
+mechanical: **verify which GDS a checker judged before believing it**,
+in either direction. The 60-error pass is an invalid check, not a
+failure — and had the stale GDS been clean, it would have been an
+invalid pass. The DRC re-run on the corrected (no-sealring) GDS is in
+flight at the time of writing and is recorded as OPEN, not predicted.
+
+**A bounded proof proves its bounds and nothing more.** The pad ring
+was proven twice before the harden — `chipfp1` placed it, `chipfp2`
+carried it through tap/endcap insertion with all 370 IO cells FIXED —
+and the first full run still died in global placement, GPL-0326: every
+pad placed, every top-level port unplaced. LibreLane assigns the
+chip's BTerms onto the pads' bond-pad pins only when
+`PAD_PLACE_IO_TERMINALS` is set, an optional variable the PDK's own IO
+config carries only as a commented-out hint. Both probes stopped
+before placement, so "the ring places" was validated while "the ports
+land on the ring" was not — the failure sat exactly in the strip
+between the proof's edge and the first untested step.
+`flow/pad_cfg_chip.tcl` now sets the terminal mapping (signal-pad
+masters only — the RTL declares no power ports) and carries the
+GPL-0326 story in its header. When bounding the next proof, write down
+what is *outside* the bound; that list is where this failure lived.
+
+One classification is left open rather than rounded away: magic
+reports **956 illegal overlaps**, every one of the form
+`obsm* vs metal* (types do not connect)` — 950 on metal7, 6 on metal3.
+That is the IO cells' LEF **obstruction** layers against routed metal:
+an artifact of abstract views inside a tool that re-reads the real
+geometry, not a drawn short — the same extraction fed the LVS that
+matched uniquely. The honest fix is a decision, not a grep: exclude
+the IO cells from the overlap check the way the SRAM macros are, or
+waive the message class with the analysis attached. Until one of those
+is done it stays OPEN in [variant_status.md](variant_status.md) and
+[chip.md](chip.md).

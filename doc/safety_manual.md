@@ -3,11 +3,11 @@
 > [!NOTE]
 > **This document describes cdriscv-32s-20.** It began as variant 1's and
 > has been revised for this variant — the port list, the clock domains,
-> the register map and the assumptions of use are this design's. What it
-> does **not** carry is variant 1's evidence: no signoff gate is met in
-> this repository, and any measured figure quoted from variant 1 is
-> labelled as such where it appears. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> the register map and the assumptions of use are this design's. The evidence
+> behind it is this variant's own — O1–O7 and O9 are met on this
+> repository's runs, O8 (gate level) is open — and any measured figure
+> still quoted from variant 1 is labelled as such where it appears. See
+> [variant_status.md](variant_status.md) for what holds here.
 
 > **Status: not qualified for safety-critical use.** The evidence base,
 > however, is now this variant's own: O1 (143/143), O2 (10⁹
@@ -20,17 +20,14 @@
 > (E2E byte-enable fold; config parity over the PMP arrays).
 >
 > What keeps the disclaimer in force: the base failure rates are
-> **assumed**, not foundry data; O8 (gate-level) awaits the next
-> hardening's netlist, and the FMEDA's populations partly rest on RTL
-> elaboration until then; there is no mission profile, no common-cause
-> analysis for the lockstep pair, and no safety-case owner.
->
-> None of that is certification. The FMEDA rests on **assumed** base
-> failure rates, because no foundry FIT data exists for this design;
-> there is no mission profile, no common-cause analysis for the lockstep
-> pair, and no safety-case owner. **No claim of compliance with ISO
-> 26262, IEC 61508 or any other functional safety standard is made, and
-> none may be derived from this document.**
+> **assumed**, because no foundry FIT data exists for this design; O8
+> (gate-level) is open — the `chip1` netlist now exists and the work
+> has not been done on it, and the FMEDA's populations partly rest on
+> RTL elaboration until they are refreshed from it; there is no mission
+> profile, no common-cause analysis for the lockstep pair, and no
+> safety-case owner. **No claim of compliance with ISO 26262, IEC 61508
+> or any other functional safety standard is made, and none may be
+> derived from this document.**
 >
 > **On the name.** The `s` in `cdriscv-32s-10` states what the part is
 > designed *for*, not what it has been certified *as*. This document
@@ -146,25 +143,28 @@ fault on a fetch).
 
 ## 5. Known gaps
 
-These are known and unresolved. As of 2026-08-24 the O1–O7 gate of the
-verification plan is met, so the IP **may be used in a project**; the
-gaps below are the reason it remains **not qualified for
-safety-critical use** — O8–O9 and the FMEDA are the gate for that, and
-they are open.
+These are known and unresolved. As of 2026-09-02 the O1–O7 gate of
+this variant's verification plan is met on this repository's runs, so
+the IP **may be used in a project**; the gaps below are the reason it
+remains **not qualified for safety-critical use** — of the O8–O9 gate,
+O9 and the FMEDA are done and O8 (gate level) is open.
 
-* The FMEDA exists ([fmeda.md](fmeda.md)): SPFM 99.6 %, LFM 91.4 %,
-  residual 0.87 FIT — **under assumed failure rates**. The gap that
-  remains is the data, not the analysis: foundry FIT figures, a
-  mission profile, and common-cause analysis for the lockstep pair,
-  per the handoff checklist in that document.
-* **Diagnostic latency has been measured** for the fault classes that
-  are detected: median 4 cycles, worst observed 69 — 2.76 µs at the 25 MHz target
-  — over 734 detections in a 2 700-injection campaign. The fast end is
-  the safety controller's own status register at 1 cycle; the slow end
-  is memory ECC at a median of 32 to 38 cycles, because ECC checks a
-  word when it is read and a corrupted word waits until the program
-  returns to it. This bounds latency for what is covered and says
-  nothing about the 46 % that are latent. See finding V33.
+* The FMEDA exists ([fmeda.md](fmeda.md), computed 2026-09-02 on this
+  variant's campaigns): SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT —
+  **under assumed failure rates**. The gap that remains is the data,
+  not the analysis: foundry FIT figures, a mission profile, and
+  common-cause analysis for the lockstep pair, per the handoff
+  checklist in that document.
+* **Diagnostic latency is measured per campaign on this variant**
+  (`build/fi_campaign*.txt`): median 2 cycles over the detected runs of
+  the trap and memory workloads, with the slow tail owned by memory ECC
+  (worst observed 1839 cycles), because ECC checks a word when it is
+  read and a corrupted word waits until the program returns to it. The
+  re-measured mechanisms sit at the fast end: PMP array parity detects
+  in 2 cycles flat (448/448), E2E byte-enable faults at a median of
+  7 cycles, worst 21. This bounds latency for what is detected and says
+  nothing about what is architecturally silent — see
+  [verification_findings_20.md](verification_findings_20.md) §18.
 * **Every safety mechanism here is armed by a register — and since
   2026-08-22 every one of those registers is parity-protected.** The
   history matters and is kept: V29 measured that over 2 600 single
@@ -196,14 +196,15 @@ they are open.
   solely on the safety controller's configurable reactions: STATUS
   bit 13's hardwired interrupt and pin exist precisely because the
   configured path may be what the fault corrupted.
-* Fault-injection campaigns total ~10⁴ classified upsets across three
-  workloads and up to 27 state elements: zero silent data corruption,
-  zero hangs, zero latent (post-V37). Detection depends on what the
-  software makes live — the early campaigns measured 41–57 % across
-  workloads on a nine-element list (V9) — so no figure here is a
-  diagnostic coverage claim without its fault list and workload named.
-  The FMEDA ([fmeda.md](fmeda.md)) is where the measured coverage
-  meets failure rates.
+* Fault-injection results depend on what the software makes live — the
+  early variant-1 campaigns measured 41–57 % across workloads on a
+  nine-element list (V9) — so no figure here is a diagnostic coverage
+  claim without its fault list and workload named. This variant's
+  eight campaigns (`build/fi_campaign*.txt`: the A/B/C workloads plus
+  the systematic E2E / CLINT / PMP / Zcmp / debug sweeps, §18 of
+  [verification_findings_20.md](verification_findings_20.md)) are the
+  measured base; the FMEDA ([fmeda.md](fmeda.md)) is where that
+  coverage meets failure rates.
 * No gate level fault injection.
 * The clock monitor's software interface was defective until 2026-08-21
   in three ways, all now fixed and all documented as V11-F1 to V11-F3 in
@@ -226,9 +227,10 @@ they are open.
   cycle, and is the recommended resolution.
 * The safety controller's status registers are not themselves protected
   by ECC or parity.
-* The bus interconnect is not protected: address and data are unprotected
-  between the core and the memories; only the memory contents are covered.
+* Bus protection is partial: the two TCM links carry end-to-end
+  protection (`e2e_link`, data + address + byte enables in the fold,
+  since 2026-09-02) but the peripheral bridge and the CLINT answer for
+  themselves through `err_o` only — those links carry no E2E check.
 * No end-to-end protection of the ADC data path beyond the range check.
-* Timing constraints, CDC constraints and lint waivers are not written.
-* No verification of any kind has been performed. See
-  `verification_plan.md`.
+* Scan insertion / manufacturing test of the logic is not included;
+  the memory BIST covers the arrays only (integration manual §7.3).

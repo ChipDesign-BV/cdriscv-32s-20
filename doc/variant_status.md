@@ -29,7 +29,7 @@ table:
 | Module | Purpose | in |
 |---|---|---|
 | `mult` | single-cycle 33×33 multiplier — the ONLY multiply path since 2026-09-02, when `multdiv`'s dead iterative multiply half was deleted | yes |
-| `pmp` | 8-region physical memory protection checker | yes, data accesses |
+| `pmp` | 8-region physical memory protection checker | yes, twice: data (`u_pmp`) and fetch (`u_pmp_fetch`) |
 | `decompress` | Zca/Zcb 16 → 32 bit expander; flags (not expands) Zcmp | yes |
 | `zcmp` | Zcmp micro-operation step table, walked by the core's `ST_SEQ` | yes |
 | `if_align` | 16-bit fetch granularity and straddle handling | yes |
@@ -55,7 +55,7 @@ anything in the RTL.
 | `alu` | `block-alu-bitmanip` | 135 111 | 6/6 | independent model (loop where the DUT uses a tree) |
 | `mult` | `block-mult` | 80 900 | 4/4 | explicit widening where the DUT slices one product |
 | `pmp` | `block-pmp` | 52 419 | 9/9 | independent address-match model |
-| `e2e` | `block-e2e` | 119 071 | defect found | fault-injection escape statistics, split by fault class |
+| `e2e` | `block-e2e` | 154 096 | defect found | fault-injection escape statistics, split by fault class |
 | `clint` | `block-clint` | 11 918 | 7/7 | independent register model |
 | `jtag_tap` | `block-jtag` | 23 | 7/7 | IEEE 1149.1 mandatory sequences, now with the Pause-IR detour and an undecoded IR behaving as BYPASS (2026-09-01) |
 | `dbg_bridge` + `dbg_win` | `block-dbg` | 35 | 9/10 | the same reads at three tck:clk ratios |
@@ -66,7 +66,9 @@ anything in the RTL.
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 | `e2e_link` | `block-e2e-link` | 12 024 | 10/10 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic — since 2026-09-02 including byte-enable corruption (write beat and read request), and two be mutants: the fold-drop and the live-vs-held phase |
 
-`make block-20` runs all thirteen: **2 051 674 checks**.
+`make block-20` runs all thirteen: **2 087 437 checks** (per-bench
+counts above, from `build/block_*.log`; `block-e2e` grew to 154 096
+with the 2026-09-02 byte-enable fault classes).
 
 The one surviving mutant in `block-dbg` is named rather than rounded
 away: moving the bridge's acknowledge a cycle earlier, so it is sent in
@@ -123,23 +125,23 @@ have signed off both.
 
 ---
 
-## 3. What is NOT done
+## 3. Objective status
 
-Largest first.
+Ordered largest-first as when this was the not-done list; entries whose
+prediction has been replaced by the result say so in place, which is
+deliberate — the wrong expectation next to the measurement is the
+record.
 
 1. **O2 is met, on the current RTL.** 1 015 480 871 instructions over
    27 000 randomly generated programs in 54 batches, every batch
    500/500, zero mismatches on retire PC, instruction, register writes
    and memory writes, with memory grants held off on 30 % of cycles —
-   re-run 2026-08-31 against revision `49079a3`, the revision that
-   closed the implementation phase (JTAG, CLINT, E2E, PMP on data and
-   fetch, Zcmp all in).
-
-   The one-unchanging-design condition was checked against recorded
-   facts, not memory: the log header names the revision, the runner was
-   rebuilt from scratch at 16:13:32 UTC — 57 minutes after the last
-   commit touching `rtl/` or `verif/core/` — batch 0 started 16:21,
-   batch 53 finished 23:20, and the tree stayed clean throughout.
+   re-run 2026-09-02 against revision `2ecf4b2`, the **final RTL** —
+   the three measured-finding fixes (multdiv dead-multiply removal,
+   E2E byte-enable fold, PMP array parity) included, so the marathon
+   and the FMEDA describe the same design (`build/o2_marathon.log`, batch 0 started 11:17, batch 53
+   finished 21:49, tree clean throughout; the log header names the
+   revision).
 
    **The total is identical to the previous campaign's, and that is
    determinism, not a stale log.** The campaign runs a fixed seed
@@ -152,10 +154,12 @@ Largest first.
    this number should expect it to repeat exactly until the generator
    or seed plan changes.
 
-   Two earlier campaigns are archived rather than deleted: the
-   2026-08-30 run (same result, pre-implementation-phase RTL) and the
-   first attempt, which reached 1 015 491 890 instructions but spanned
-   the Zca/Zcb and multiplier changes and therefore closed nothing —
+   Three earlier campaigns are archived rather than deleted: the
+   2026-08-31 run (same result, revision `49079a3` — pre the three
+   fixes), the 2026-08-30 run (same result, pre-implementation-phase
+   RTL), and the first attempt, which reached 1 015 491 890
+   instructions but spanned the Zca/Zcb and multiplier changes and
+   therefore closed nothing —
    §10 of [verification_findings_20.md](verification_findings_20.md).
 
    Caveat carried honestly: the program generator emits no cm.*
@@ -395,7 +399,7 @@ Largest first.
      outstanding access for the read path, and the instruction master
      folds the constant `4'b1111` the bus drives for a fetch.
 
-   `block-e2e-link` (11 286 checks, mutants 8/8 — including the one
+   `block-e2e-link` (12 024 checks, mutants 10/10 — including the one
    that matters: address dropped from the fold at *both* ends, which
    clean traffic and data faults cannot see and only wrong-address
    delivery kills) proves the endpoints; the full regression and
@@ -449,8 +453,13 @@ Largest first.
    simulation, `block-multdiv` runs divide vectors only (the multiply
    vectors belong to `block-mult`, with the logic they exercised), and
    W5 is closed because the waived line no longer exists.
-8. **The re-harden with the complete RTL is done. Everything physical
-   passes; setup timing at the slow corner does not.**
+8. **The re-harden with the complete RTL is done — and timing has
+   since closed at chip level.** The subsystem run `v2full` below missed
+   setup at the slow corner; candidate 1 of its own list was then
+   measured (`probe2`) and carried into the full-chip harden (`chip1`),
+   which closes. The `v2full` analysis is kept as written, because the
+   resolution paragraph at the end is only honest next to the
+   prediction it tested.
 
    `v2full` — Zca/Zcb in the fetch path, the single-cycle multiplier, the
    JTAG TAP with its bridge and window, and all three clocks constrained
@@ -526,10 +535,39 @@ Largest first.
    `ref_clk_i` domain was unconstrained, so it is a comparison point and
    not a fallback.
 
+   **Resolution (2026-09-03/04): candidate 1 was measured, then used,
+   and it closed.** `probe2` re-ran the subsystem with
+   `SYNTH_BUFFER_CELL = sg13g2_buf_4` and 0.3 ns resizer setup margins:
+   slow-corner setup moved −0.719 → **−0.059 ns**, so the buf_1 chains
+   were essentially the whole violation. The full-chip run `chip1`
+   (buf_4, margins 0.35 ns) then **closed timing at chip level**:
+   setup **+0.373 ns** slow / TNS 0 / 0 violating endpoints, hold
+   +0.139 ns worst, on the 2400 × 3500 µm pad-ring die — with routing
+   DRC 0, antenna 0, XOR 0 and **LVS matching uniquely across 161 742
+   devices / 86 330 nets including the pad ring**. Candidate 2 (the RTL
+   restructure) was never needed and remains future margin.
+
+   Deferred deliberately, with the evidence in [chip.md](chip.md) and
+   §19 of [verification_findings_20.md](verification_findings_20.md):
+   the **seal ring** (the PDK PCell emits INT32_MIN coordinates for
+   every size, including the PDK's own example; the die keeps the
+   140 µm allowance so the fixed ring adds without a floorplan change)
+   and **density fill** (the PDK filler OOMs >13 GB on the 8.4 mm²
+   die; the subsystem flow never ran metal fill either). Still OPEN,
+   as evidence rather than verdicts: the **KLayout chip DRC re-run**
+   on the corrected no-sealring GDS (the first pass judged the stale
+   sealring GDS — its 60 errors are that corrupt geometry, an invalid
+   check), and the classification of **956 magic illegal overlaps**
+   (all `obsm*` LEF-obstruction vs routed-metal artifacts; exclude the
+   IO cells like the SRAMs, or waive with analysis — a decision, not
+   yet made).
+
 9. **Coverage (O6/O7), fault injection and the FMEDA are all this
    variant's now.** On the final RTL (2026-09-02, post the three
-   measured-finding fixes): line **96.1 %** measured / **100 % with
-   reviewed waivers**, toggle **96.3 %** (the ≥ 95 % sub-criterion is
+   measured-finding fixes): line **96.1 %** measured / **100 % with 23
+   reviewed waivers** (re-reconciled in
+   [verif/coverage_waivers.md](../verif/coverage_waivers.md)), toggle
+   **96.3 %** (the ≥ 95 % sub-criterion is
    met), functional **100 % of 92 points**. Eight FI campaigns
    measured every claimed mechanism; two findings went back into the
    RTL and were re-measured closed (E2E byte enables 10 SDCs → 0;
@@ -537,8 +575,9 @@ Largest first.
    FMEDA ([fmeda.md](fmeda.md), 2026-09-02): **SPFM 99.50 %, LFM
    92.66 %, residual 1.22 FIT** — both past the ASIL D thresholds *on
    assumed base rates*, populations from the v2full netlist plus RTL
-   elaboration for the blocks that post-date it, to be refreshed from
-   the chip netlist after the full-chip harden.
+   elaboration for the blocks that post-date it. The `chip1` netlist
+   now exists (item 8); refreshing the FMEDA populations from it is an
+   open to-do, alongside O8 below.
 
    The coverage machinery that made the numbers honest (2026-09-01
    pass): line was 95.8 % measured (568 of 593) with **25 reviewed
@@ -570,7 +609,7 @@ Largest first.
    `cosim_isa` the c.xor/c.zext.b/c.not forms (re-proven against
    Spike), and `tb_jtag` the Pause-IR path and undecoded-IR-as-BYPASS.
 
-   **Open:** toggle sits at 94.4 % against the plan's inherited ≥ 95 %
+   **Open (as of 2026-09-01):** toggle sits at 94.4 % against the plan's inherited ≥ 95 %
    criterion — 0.6 points short, unwaived and uninvestigated, so O6 is
    met on its line-coverage half and open on toggle; the pre-existing
    coverage runs still trust the bench's exit code (only pmp/zcmp grep
@@ -587,9 +626,13 @@ Largest first.
    detected in 2 cycles after the PMP parity extension (§18 of
    verification_findings_20.md carries the before/after tables); the
    coverage and toggle numbers from the 2026-09-02 re-run are in the
-   paragraph below. Still open: `gate-fsm-core` vs the 3-bit ST_SEQ
-   machine, and the FMEDA regeneration, which waits for the O2
-   marathon by design.)*
+   opening paragraph of this item. The FMEDA regeneration it named as
+   waiting has since happened: the O2 marathon completed on `2ecf4b2`
+   the same day and [fmeda.md](fmeda.md) was computed after it. Still
+   open: `gate-fsm-core` vs the 3-bit ST_SEQ machine, **O8** —
+   gate-level simulation, now waiting on the `chip1` netlist rather
+   than on a harden that had not run — and the FMEDA population
+   refresh from that same netlist.)*
 
 ---
 
@@ -603,15 +646,16 @@ races and the two lint findings fixed rather than waived — are in
 
 ---
 
-## 4. Reading the inherited documentation
+## 4. Reading the documentation
 
-`doc/` is carried over from variant 1 and describes variant 1. Where a
-document states a measured result — the FMEDA numbers, the coverage
-figures, the RTL2GDS tables, the verification findings — that result was
-produced on variant 1 and has not been reproduced here. The architecture
-and register-map documents are structurally accurate for the shared
-baseline but do not yet describe the new blocks.
-
-They are kept rather than deleted because the baseline they describe is
-genuinely this design's baseline, and deleting them would lose the
-reasoning. They will be revised as each item in section 3 closes.
+`doc/` has been revised for this variant as its results landed: the
+architecture, integration, programming, register-map and safety
+documents describe this design, [fmeda.md](fmeda.md) is computed on
+this design's campaigns, [chip.md](chip.md) is this design's chip
+level, and [verification_findings_20.md](verification_findings_20.md)
+is this variant's own log. Two documents deliberately still speak for
+variant 1 and say so in their banners:
+[verification_plan.md](verification_plan.md) (the objectives are shared;
+its result column is variant 1's, with this repository's status tracked
+here) and [verification_findings.md](verification_findings.md) (variant
+1's evidence log, V0–V52, kept verbatim).

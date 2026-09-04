@@ -1,16 +1,17 @@
 # cdriscv-32s-20 architecture
 
 > [!NOTE]
-> **This document describes cdriscv-32s-20.** It began as variant 1's and
-> has been revised for this variant. What it does **not** carry is
-> variant 1's evidence: no signoff gate is met in this repository. See
-> [variant_status.md](variant_status.md) for what actually holds here.
+> **This document describes cdriscv-32s-20.** It began as variant 1's
+> and has been revised for this variant; the evidence behind it is this
+> variant's own. See [variant_status.md](variant_status.md) for what
+> holds here, per module and per objective.
 
-> **Status: no signoff gate is met in this repository.** The structures
-> described here are implemented and block-verified — see
-> [variant_status.md](variant_status.md) for the per-module evidence —
-> but this variant has no coverage, fault-injection or FMEDA results of
-> its own.
+> **Status (2026-09-04): O1–O7 and O9 are met on this variant's runs**
+> — architectural suite 143/143, 10⁹-instruction co-simulation,
+> coverage closed with reviewed waivers, eight fault-injection
+> campaigns and an FMEDA on assumed rates ([fmeda.md](fmeda.md)). O8
+> (gate level) is open. The chip level is hardened and timing-closed
+> ([chip.md](chip.md)).
 
 ## 1. Overview
 
