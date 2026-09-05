@@ -69,6 +69,7 @@ module tb_dbg;
   );
 
   // observed state, driven by the bench
+  logic        boot_done, boot_fault;
   logic        core_sleep, fault_any, err_pin, reset_req;
   logic [15:0] fault_int, fault_ext;
   logic        retire_valid;
@@ -82,6 +83,8 @@ module tb_dbg;
       .acc_wdata_i    (acc_wdata),
       .acc_we_i       (acc_we),
       .acc_rdata_o    (acc_rdata),
+      .boot_done_i    (boot_done),
+      .boot_fault_i   (boot_fault),
       .core_sleep_i   (core_sleep),
       .fault_any_i    (fault_any),
       .err_pin_i      (err_pin),
@@ -163,6 +166,7 @@ module tb_dbg;
 
   initial begin
     dbg_addr = '0; dbg_wdata = '0; dbg_req = 1'b0; dbg_we = 1'b0;
+    boot_done = 1'b0; boot_fault = 1'b0;
     core_sleep = 1'b0; fault_any = 1'b0; err_pin = 1'b0; reset_req = 1'b0;
     fault_int = 16'h0; fault_ext = 16'h0;
     retire_valid = 1'b0; retire_pc = '0; retire_instr = '0;
@@ -212,6 +216,15 @@ module tb_dbg;
     reset_req = 1'b1;
     dbg_read(32'h04, v); check("status reset_req", v, 32'h0000_0018);
     reset_req = 1'b0;
+
+    // bits 5/6, appended for the QSPI boot loader
+    boot_done = 1'b1;
+    dbg_read(32'h04, v); check("status boot_done", v, 32'h0000_0030);
+    boot_done = 1'b0;
+
+    boot_fault = 1'b1;
+    dbg_read(32'h04, v); check("status boot_fault", v, 32'h0000_0050);
+    boot_fault = 1'b0;
 
     // ---- a write must change nothing ------------------------------
     dbg_access(32'h04, 1'b1, 32'hffff_ffff);

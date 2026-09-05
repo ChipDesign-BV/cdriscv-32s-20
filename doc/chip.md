@@ -28,20 +28,22 @@ field is the subsystem logic. The gap between ring and die edge is the
 | Die | **2400 × 3500 µm** (8.40 mm²) |
 | Ring depth per edge | 140 µm sealring allowance (`PAD_EDGE_SPACING`) + 180 µm pad depth |
 | Core area | [350, 350, 2050, 3150] (1700 × 2800 µm) |
-| Pads | 99 (83 signal + 16 supply) + 4 × `sg13g2_Corner` |
+| Pads | 105 (89 signal + 16 supply) + 4 × `sg13g2_Corner` |
 | Pad cell pitch | 80 µm wide × 180 µm deep (from `sg13g2_io.lef`), ring gaps filled with `sg13g2_Filler*` |
 | TCM macros | 6 × RM_IHPSG13 SRAM, same I-TCM-south / D-TCM-north arrangement as the subsys floorplan, relocated into the new core |
 
-Side occupancy (pad count / spacing between pads): south 16 / 28 µm,
-east 34 / 4 µm, north 19 / 12 µm, west 30 / 14 µm. The east side is the
-tightest; one more pad there would force a taller die.
+Side occupancy (pad count / spacing between pads): south 22 / 0 µm,
+east 34 / 4 µm, north 19 / 12 µm, west 30 / 14 µm. South is now full
+(the six QSPI pads take exactly the slack the side had) and east is
+next at 4 µm; one more pad on either would force a bigger die.
 
 ## Pinout plan
 
 - **South** — system clock domain entry (`clk_i`, `rst_ni`, `fetch_enable_i`),
-  the JTAG group (`tck/tms/tdi/trst_n` + the single tri-state `tdo` pad), and
-  the safety status outputs (`err_pin_o`, `reset_req_o`, `fault_any_o`,
-  `core_sleep_o`).
+  the JTAG group (`tck/tms/tdi/trst_n` + the single tri-state `tdo` pad), the
+  safety status outputs (`err_pin_o`, `reset_req_o`, `fault_any_o`,
+  `core_sleep_o`), and the QSPI boot flash group (`qspi_sclk_o`,
+  `qspi_cs_no`, `qspi_io[3:0]`) beside the south-east corner.
 - **East** — `fault_ext_i[15:0]` and `irq_i[13:0]` (digital board face).
 - **North** — DAC bundle at the west end (adjacent to the analog face) and the
   reference-clock domain (`ref_clk_i`, `ref_rst_ni`) at the east end.
@@ -53,6 +55,18 @@ tightest; one more pad there would force a taller die.
 TDO is **one pad**: `sg13g2_IOPadTriOut4mA`, `c2p` ⇐ `tdo_o`, active-high
 `c2p_en` ⇐ `tdo_oe_o` (the model is `assign pad = c2p_en ? c2p : 1'bz;`), so
 TDO floats except while the TAP drives it, per IEEE 1149.1.
+
+The four QSPI data lines are `sg13g2_IOPadInOut4mA` (same pad equation
+plus the `p2c` input path), one chip `inout qspi_io[3:0]`: per bit
+`c2p` ⇐ `qspi_io_o`, `p2c` ⇒ `qspi_io_i`, `c2p_en` ⇐ `qspi_io_oe_o` —
+the boot loader drives the enables per SPI phase, and in quad data
+phases all four lines are flash-driven.
+
+> **The `chip1` results below predate the QSPI pads.** That run
+> hardened the 99-pad revision without the boot loader; the pinout
+> above (105 pads) and `flow/config_chip.json` are the current
+> generator output, and the chip must be re-hardened before the gate
+> table below describes this netlist.
 
 ## Power pads
 
@@ -173,87 +187,93 @@ spreads each side evenly.
 | 14 | S14 | `reset_req_o` | `sg13g2_IOPadOut4mA` | 4 mA |
 | 15 | S15 | `fault_any_o` | `sg13g2_IOPadOut4mA` | 4 mA |
 | 16 | S16 | `core_sleep_o` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 17 | E01 | `fault_ext_i[0]` | `sg13g2_IOPadIn` | - |
-| 18 | E02 | `fault_ext_i[1]` | `sg13g2_IOPadIn` | - |
-| 19 | E03 | `fault_ext_i[2]` | `sg13g2_IOPadIn` | - |
-| 20 | E04 | `fault_ext_i[3]` | `sg13g2_IOPadIn` | - |
-| 21 | E05 | `fault_ext_i[4]` | `sg13g2_IOPadIn` | - |
-| 22 | E06 | `fault_ext_i[5]` | `sg13g2_IOPadIn` | - |
-| 23 | E07 | `fault_ext_i[6]` | `sg13g2_IOPadIn` | - |
-| 24 | E08 | `fault_ext_i[7]` | `sg13g2_IOPadIn` | - |
-| 25 | E09 | `fault_ext_i[8]` | `sg13g2_IOPadIn` | - |
-| 26 | E10 | `fault_ext_i[9]` | `sg13g2_IOPadIn` | - |
-| 27 | E11 | `fault_ext_i[10]` | `sg13g2_IOPadIn` | - |
-| 28 | E12 | `fault_ext_i[11]` | `sg13g2_IOPadIn` | - |
-| 29 | E13 | `fault_ext_i[12]` | `sg13g2_IOPadIn` | - |
-| 30 | E14 | `fault_ext_i[13]` | `sg13g2_IOPadIn` | - |
-| 31 | E15 | `fault_ext_i[14]` | `sg13g2_IOPadIn` | - |
-| 32 | E16 | `fault_ext_i[15]` | `sg13g2_IOPadIn` | - |
-| 33 | E17 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
-| 34 | E18 | `(pad ring)` | `sg13g2_IOPadVss` | - |
-| 35 | E19 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
-| 36 | E20 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
-| 37 | E21 | `irq_i[0]` | `sg13g2_IOPadIn` | - |
-| 38 | E22 | `irq_i[1]` | `sg13g2_IOPadIn` | - |
-| 39 | E23 | `irq_i[2]` | `sg13g2_IOPadIn` | - |
-| 40 | E24 | `irq_i[3]` | `sg13g2_IOPadIn` | - |
-| 41 | E25 | `irq_i[4]` | `sg13g2_IOPadIn` | - |
-| 42 | E26 | `irq_i[5]` | `sg13g2_IOPadIn` | - |
-| 43 | E27 | `irq_i[6]` | `sg13g2_IOPadIn` | - |
-| 44 | E28 | `irq_i[7]` | `sg13g2_IOPadIn` | - |
-| 45 | E29 | `irq_i[8]` | `sg13g2_IOPadIn` | - |
-| 46 | E30 | `irq_i[9]` | `sg13g2_IOPadIn` | - |
-| 47 | E31 | `irq_i[10]` | `sg13g2_IOPadIn` | - |
-| 48 | E32 | `irq_i[11]` | `sg13g2_IOPadIn` | - |
-| 49 | E33 | `irq_i[12]` | `sg13g2_IOPadIn` | - |
-| 50 | E34 | `irq_i[13]` | `sg13g2_IOPadIn` | - |
-| 51 | N01 | `dac_we_o` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 52 | N02 | `dac_data_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 53 | N03 | `dac_data_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 54 | N04 | `dac_data_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 55 | N05 | `dac_data_o[3]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 56 | N06 | `dac_data_o[4]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 57 | N07 | `dac_data_o[5]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 58 | N08 | `dac_data_o[6]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 59 | N09 | `dac_data_o[7]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 60 | N10 | `dac_data_o[8]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 61 | N11 | `dac_data_o[9]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 62 | N12 | `dac_data_o[10]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 63 | N13 | `dac_data_o[11]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 64 | N14 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
-| 65 | N15 | `(pad ring)` | `sg13g2_IOPadVss` | - |
-| 66 | N16 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
-| 67 | N17 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
-| 68 | N18 | `ref_clk_i` | `sg13g2_IOPadIn` | - |
-| 69 | N19 | `ref_rst_ni` | `sg13g2_IOPadIn` | - |
-| 70 | W01 | `atest_en_o` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 71 | W02 | `atest_sel_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 72 | W03 | `atest_sel_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 73 | W04 | `atest_sel_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 74 | W05 | `atest_sel_o[3]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 75 | W06 | `ana_flag_i[0]` | `sg13g2_IOPadIn` | - |
-| 76 | W07 | `ana_flag_i[1]` | `sg13g2_IOPadIn` | - |
-| 77 | W08 | `ana_flag_i[2]` | `sg13g2_IOPadIn` | - |
-| 78 | W09 | `ana_flag_i[3]` | `sg13g2_IOPadIn` | - |
-| 79 | W10 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
-| 80 | W11 | `(pad ring)` | `sg13g2_IOPadVss` | - |
-| 81 | W12 | `adc_start_o` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 82 | W13 | `adc_ch_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 83 | W14 | `adc_ch_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 84 | W15 | `adc_ch_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
-| 85 | W16 | `adc_valid_i` | `sg13g2_IOPadIn` | - |
-| 86 | W17 | `adc_data_i[0]` | `sg13g2_IOPadIn` | - |
-| 87 | W18 | `adc_data_i[1]` | `sg13g2_IOPadIn` | - |
-| 88 | W19 | `adc_data_i[2]` | `sg13g2_IOPadIn` | - |
-| 89 | W20 | `adc_data_i[3]` | `sg13g2_IOPadIn` | - |
-| 90 | W21 | `adc_data_i[4]` | `sg13g2_IOPadIn` | - |
-| 91 | W22 | `adc_data_i[5]` | `sg13g2_IOPadIn` | - |
-| 92 | W23 | `adc_data_i[6]` | `sg13g2_IOPadIn` | - |
-| 93 | W24 | `adc_data_i[7]` | `sg13g2_IOPadIn` | - |
-| 94 | W25 | `adc_data_i[8]` | `sg13g2_IOPadIn` | - |
-| 95 | W26 | `adc_data_i[9]` | `sg13g2_IOPadIn` | - |
-| 96 | W27 | `adc_data_i[10]` | `sg13g2_IOPadIn` | - |
-| 97 | W28 | `adc_data_i[11]` | `sg13g2_IOPadIn` | - |
-| 98 | W29 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
-| 99 | W30 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
+| 17 | S17 | `qspi_sclk_o` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 18 | S18 | `qspi_cs_no` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 19 | S19 | `qspi_io[0]` | `sg13g2_IOPadInOut4mA` | 4 mA |
+| 20 | S20 | `qspi_io[1]` | `sg13g2_IOPadInOut4mA` | 4 mA |
+| 21 | S21 | `qspi_io[2]` | `sg13g2_IOPadInOut4mA` | 4 mA |
+| 22 | S22 | `qspi_io[3]` | `sg13g2_IOPadInOut4mA` | 4 mA |
+| 23 | E01 | `fault_ext_i[0]` | `sg13g2_IOPadIn` | - |
+| 24 | E02 | `fault_ext_i[1]` | `sg13g2_IOPadIn` | - |
+| 25 | E03 | `fault_ext_i[2]` | `sg13g2_IOPadIn` | - |
+| 26 | E04 | `fault_ext_i[3]` | `sg13g2_IOPadIn` | - |
+| 27 | E05 | `fault_ext_i[4]` | `sg13g2_IOPadIn` | - |
+| 28 | E06 | `fault_ext_i[5]` | `sg13g2_IOPadIn` | - |
+| 29 | E07 | `fault_ext_i[6]` | `sg13g2_IOPadIn` | - |
+| 30 | E08 | `fault_ext_i[7]` | `sg13g2_IOPadIn` | - |
+| 31 | E09 | `fault_ext_i[8]` | `sg13g2_IOPadIn` | - |
+| 32 | E10 | `fault_ext_i[9]` | `sg13g2_IOPadIn` | - |
+| 33 | E11 | `fault_ext_i[10]` | `sg13g2_IOPadIn` | - |
+| 34 | E12 | `fault_ext_i[11]` | `sg13g2_IOPadIn` | - |
+| 35 | E13 | `fault_ext_i[12]` | `sg13g2_IOPadIn` | - |
+| 36 | E14 | `fault_ext_i[13]` | `sg13g2_IOPadIn` | - |
+| 37 | E15 | `fault_ext_i[14]` | `sg13g2_IOPadIn` | - |
+| 38 | E16 | `fault_ext_i[15]` | `sg13g2_IOPadIn` | - |
+| 39 | E17 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
+| 40 | E18 | `(pad ring)` | `sg13g2_IOPadVss` | - |
+| 41 | E19 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
+| 42 | E20 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
+| 43 | E21 | `irq_i[0]` | `sg13g2_IOPadIn` | - |
+| 44 | E22 | `irq_i[1]` | `sg13g2_IOPadIn` | - |
+| 45 | E23 | `irq_i[2]` | `sg13g2_IOPadIn` | - |
+| 46 | E24 | `irq_i[3]` | `sg13g2_IOPadIn` | - |
+| 47 | E25 | `irq_i[4]` | `sg13g2_IOPadIn` | - |
+| 48 | E26 | `irq_i[5]` | `sg13g2_IOPadIn` | - |
+| 49 | E27 | `irq_i[6]` | `sg13g2_IOPadIn` | - |
+| 50 | E28 | `irq_i[7]` | `sg13g2_IOPadIn` | - |
+| 51 | E29 | `irq_i[8]` | `sg13g2_IOPadIn` | - |
+| 52 | E30 | `irq_i[9]` | `sg13g2_IOPadIn` | - |
+| 53 | E31 | `irq_i[10]` | `sg13g2_IOPadIn` | - |
+| 54 | E32 | `irq_i[11]` | `sg13g2_IOPadIn` | - |
+| 55 | E33 | `irq_i[12]` | `sg13g2_IOPadIn` | - |
+| 56 | E34 | `irq_i[13]` | `sg13g2_IOPadIn` | - |
+| 57 | N01 | `dac_we_o` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 58 | N02 | `dac_data_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 59 | N03 | `dac_data_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 60 | N04 | `dac_data_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 61 | N05 | `dac_data_o[3]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 62 | N06 | `dac_data_o[4]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 63 | N07 | `dac_data_o[5]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 64 | N08 | `dac_data_o[6]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 65 | N09 | `dac_data_o[7]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 66 | N10 | `dac_data_o[8]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 67 | N11 | `dac_data_o[9]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 68 | N12 | `dac_data_o[10]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 69 | N13 | `dac_data_o[11]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 70 | N14 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
+| 71 | N15 | `(pad ring)` | `sg13g2_IOPadVss` | - |
+| 72 | N16 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
+| 73 | N17 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
+| 74 | N18 | `ref_clk_i` | `sg13g2_IOPadIn` | - |
+| 75 | N19 | `ref_rst_ni` | `sg13g2_IOPadIn` | - |
+| 76 | W01 | `atest_en_o` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 77 | W02 | `atest_sel_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 78 | W03 | `atest_sel_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 79 | W04 | `atest_sel_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 80 | W05 | `atest_sel_o[3]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 81 | W06 | `ana_flag_i[0]` | `sg13g2_IOPadIn` | - |
+| 82 | W07 | `ana_flag_i[1]` | `sg13g2_IOPadIn` | - |
+| 83 | W08 | `ana_flag_i[2]` | `sg13g2_IOPadIn` | - |
+| 84 | W09 | `ana_flag_i[3]` | `sg13g2_IOPadIn` | - |
+| 85 | W10 | `(pad ring)` | `sg13g2_IOPadVdd` | - |
+| 86 | W11 | `(pad ring)` | `sg13g2_IOPadVss` | - |
+| 87 | W12 | `adc_start_o` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 88 | W13 | `adc_ch_o[0]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 89 | W14 | `adc_ch_o[1]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 90 | W15 | `adc_ch_o[2]` | `sg13g2_IOPadOut4mA` | 4 mA |
+| 91 | W16 | `adc_valid_i` | `sg13g2_IOPadIn` | - |
+| 92 | W17 | `adc_data_i[0]` | `sg13g2_IOPadIn` | - |
+| 93 | W18 | `adc_data_i[1]` | `sg13g2_IOPadIn` | - |
+| 94 | W19 | `adc_data_i[2]` | `sg13g2_IOPadIn` | - |
+| 95 | W20 | `adc_data_i[3]` | `sg13g2_IOPadIn` | - |
+| 96 | W21 | `adc_data_i[4]` | `sg13g2_IOPadIn` | - |
+| 97 | W22 | `adc_data_i[5]` | `sg13g2_IOPadIn` | - |
+| 98 | W23 | `adc_data_i[6]` | `sg13g2_IOPadIn` | - |
+| 99 | W24 | `adc_data_i[7]` | `sg13g2_IOPadIn` | - |
+| 100 | W25 | `adc_data_i[8]` | `sg13g2_IOPadIn` | - |
+| 101 | W26 | `adc_data_i[9]` | `sg13g2_IOPadIn` | - |
+| 102 | W27 | `adc_data_i[10]` | `sg13g2_IOPadIn` | - |
+| 103 | W28 | `adc_data_i[11]` | `sg13g2_IOPadIn` | - |
+| 104 | W29 | `(pad ring)` | `sg13g2_IOPadIOVdd` | - |
+| 105 | W30 | `(pad ring)` | `sg13g2_IOPadIOVss` | - |
 <!-- END GENERATED PINOUT -->

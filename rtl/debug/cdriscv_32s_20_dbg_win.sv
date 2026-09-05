@@ -10,6 +10,10 @@
 //                  talking to the window and not to a floating bus
 //   0x04  STATUS   [0] core_sleep   [1] fault_any   [2] err_pin
 //                  [3] reset_req    [4] retire_seen
+//                  [5] boot_done    [6] boot_fault
+//                  (5 and 6 appended for the QSPI boot loader; a
+//                  subsystem built with BootEnable=0 reads boot_done=1,
+//                  boot_fault=0 -- the bypass ties them so)
 //   0x08  FAULTINT the internal fault vector, as the safety controller
 //                  sees it
 //   0x0c  FAULTEXT the external fault vector
@@ -59,6 +63,8 @@ module cdriscv_32s_20_dbg_win #(
     output logic [31:0] acc_rdata_o,
 
     // observed state
+    input  wire         boot_done_i,
+    input  wire         boot_fault_i,
     input  wire         core_sleep_i,
     input  wire         fault_any_i,
     input  wire         err_pin_i,
@@ -96,7 +102,9 @@ module cdriscv_32s_20_dbg_win #(
   // to gate, and a read with no side effects costs nothing when idle.
 
   logic [31:0] status;
-  assign status = {27'b0,
+  assign status = {25'b0,
+                   boot_fault_i,
+                   boot_done_i,
                    retire_seen_q,
                    reset_req_i,
                    err_pin_i,

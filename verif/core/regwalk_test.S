@@ -195,6 +195,15 @@ _start:
     li   a0, 12
     bne  t0, t1, fail
 
+    /* STATUS2 (0x2c, read-only boot telemetry): in every simulation
+       bench BootEnable=0 ties boot_done=1, fault=0, retries=0, so the
+       register must read exactly 0x2.  This is the APB-decode check;
+       the real-value check lives in the boot bench. */
+    lw   t0, 0x2c(s0)
+    li   t1, 0x2
+    li   a0, 17
+    bne  t0, t1, fail
+
     li   t0, 5                  /* CTRL: enable + pin toggle mode */
     sw   t0, 0x14(s0)
     lw   t0, 0x14(s0)

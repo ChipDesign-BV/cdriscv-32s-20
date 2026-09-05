@@ -46,6 +46,11 @@ so that a fault in it is either detected or bounded.
                 +--------------------------------------------------+
 ```
 
+Not drawn above: the QSPI boot loader (§4a) between the core's data port
+and the bus — the `qspi_*` ports (sclk, cs_n, and the io/oe buses that
+become six pads at chip level) leave the subsystem beside the JTAG
+group.
+
 ## 2. Core
 
 `cdriscv_32s_20_core` implements `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb`,
@@ -132,6 +137,39 @@ read-modify-write because the check bits cover the whole word.
 Each TCM has a raw 39-bit test port for the March C- BIST controller
 (`cdriscv_32s_20_mbist.sv`) and a fault injection input that lets software
 corrupt a code word on purpose to prove the detection path works.
+
+## 4a. QSPI boot loader
+
+Both TCMs are volatile, so on real silicon something must fill the
+I-TCM before the core can fetch a single instruction.
+`cdriscv_32s_20_qspi_boot` (`BootEnable=1`, the chip-top configuration)
+is that something: at cold reset it reads a boot image from an external
+SPI NOR flash over five appended subsystem pins (`qspi_sclk_o`,
+`qspi_cs_no`, `qspi_io_i/o/oe_o[3:0]` — four bidirectional pads at chip
+level), always starting in 1-bit mode (command 03h) and switching to
+Quad I/O (EBh) for the payload only when the image header asks for it.
+The image carries an I-TCM segment, an optional D-TCM segment and one
+CRC32 over both payloads; the header's magic, reserved flags and
+segment bounds are validated against the same address-map parameters
+the bus decode uses **before any write is issued**, so a wild segment
+is a boot fault, not a write.
+
+The loader is a temporary bus master, not a core change: a mux at the
+subsystem level — the loader's only touch on a functional path — puts
+it on the data-master port until `boot_done`, so its writes travel the
+ordinary bus → E2E → TCM-ECC-encode path, and the core's fetch enable
+is gated by `boot_done` exactly as it is by `mbist_busy` (the loader
+also waits out an auto-started BIST).  On CRC mismatch, header failure
+or a progress timeout it retries the whole load from scratch
+(`BootRetryMax`, default 3 retries); exhausted, it latches a sticky
+`boot_fault` and the core is **never released**.  `boot_done` and
+`boot_fault` are visible as bits 5/6 of the JTAG observation window's
+STATUS word.  A warm reset does not reload: the loader keeps its
+verified state on the cold-reset domain, and the core restarts from
+the already-checked image.  `BootEnable=0` removes the loader entirely
+(the benches that preload the TCMs build it that way).  Flash image
+format and software rules: programming_manual.md §3a.
+
 
 ## 5. Safety architecture
 
@@ -254,3 +292,8 @@ why it restarted.
 | `ItcmBase` / `DtcmBase` / `PeriphBase` | 0x0, 0x1000_0000, 0x2000_0000 | address map |
 | `HartId` | 0 | value of `mhartid` |
 | `WarmRstLen` | 16 | length of the warm reset in cycles |
+| `BootEnable` | 1 | instantiate the QSPI boot loader (§4a); 0 = TCMs preloaded externally, loader absent |
+| `BootSclkDiv` | 2 | QSPI clock division, `sclk = clk /` 2 or 4 |
+| `BootRetryMax` | 3 | boot retries after the first failed attempt |
+| `BootTimeoutCycles` | 1024 | progress watchdog, clk cycles per byte / bus beat |
+| `BootQuadDummy` | 4 | EBh dummy cycles after the mode byte |

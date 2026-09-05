@@ -176,6 +176,83 @@ The ordering constraints are in [integration.md](integration.md) §5;
 4. Set `mtvec`, enable only the interrupts you handle, enter the
    control loop.
 
+## 3a. Boot from QSPI flash
+
+On silicon (`BootEnable=1`) the I-TCM is empty at power-up and the
+hardware loader (`rtl/boot/cdriscv_32s_20_qspi_boot.sv`) fills it from
+an SPI NOR flash on the `qspi_*` pins before the core executes anything:
+`fetch_enable_i` alone does not start the core — fetch is additionally
+gated by the loader's `boot_done`.
+
+**Flash layout.** The image sits at flash offset 0.  All fields are
+little-endian 32-bit words; `scripts/mkbootimg.py` packs one from flat
+binaries and is the reference implementation:
+
+| offset | field | meaning |
+|---|---|---|
+| `0x00` | `MAGIC` | `0xCD20_B007` |
+| `0x04` | `FLAGS` | bit 0: read the payload with the quad command (EBh); bits 31:1 reserved, **must be 0** — a set reserved bit is a boot fault |
+| `0x08` | `SEG0_DEST` | byte address, word aligned — the I-TCM segment |
+| `0x0c` | `SEG0_LEN` | bytes, word multiple, > 0 |
+| `0x10` | `SEG1_DEST` | byte address, word aligned — the optional D-TCM segment |
+| `0x14` | `SEG1_LEN` | bytes, word multiple; **0 = segment absent** |
+| `0x18` | `CRC32` | IEEE 802.3 CRC-32 (`binascii.crc32`) over the payload bytes of both segments in read order (seg0 then seg1); the header itself is covered by its own checks, not the CRC |
+| `0x1c` | payload | seg0 bytes immediately followed by seg1 bytes |
+
+Each segment must lie **entirely** inside one TCM window (§1.2); the
+loader checks that from the header, before any bus write, so a wild
+segment writes nothing.  The header is always read with the 1-bit 03h
+command; the payload uses 03h, or EBh (quad, with mode byte `00` and 4
+dummy cycles — the Winbond/Macronix/ISSI convention) when `FLAGS[0]` is
+set.  At the default `sclk = clk/2`, budget ≈ 16 clk cycles per byte in
+1-bit mode and ≈ 4 in quad, plus one bus write per word: the 660-byte
+smoke image boots in ≈ 11 k cycles (1-bit) / 3.4 k (quad).
+
+**Failure behaviour.** Any failure — bad magic, reserved flag, segment
+out of bounds, CRC mismatch, a bus error response, or the per-byte
+progress timeout (`BootTimeoutCycles`) — abandons the attempt and
+retries the whole load from scratch, up to `BootRetryMax` (default 3)
+retries.  Exhausted, the loader latches a **sticky `boot_fault` and the
+core never starts**; the only observers are the JTAG STATUS word
+(§ register map 10: bit 5 `boot_done`, bit 6 `boot_fault`) and the
+absence of activity.  There is no safety-controller status bit for the
+boot fault yet — every internal index is taken; see the register map's
+fault-bit note.  A warm reset (watchdog / safety reaction) does **not**
+reload the flash: the loader state survives on the cold-reset domain
+and the core restarts from the already-verified image, exactly as the
+preloaded benches restart today.
+
+**What this changes in crt0.** The loader replaces the ROM-copy loop a
+conventional crt0 performs:
+
+1. `.text` (and `.rodata`) arrive in the I-TCM as segment 0 —
+   nothing to copy.
+2. **Initialised `.data` can arrive in the D-TCM as segment 1** —
+   pack it with a second `--seg 0x10000000` and crt0 must NOT copy or
+   re-initialise it.  `.bss` and the stack are still crt0's job (the
+   loader writes only what the image names).
+3. Startup rule 1 of §3 (write every TCM word or run the BIST) still
+   applies to every word the image does **not** cover: the prefetcher
+   runs a word or two past the program, so pack with `--pad0 64` (the
+   `make bootsim` default) or size the image to the array.  Loading the
+   full 16 KiB costs ≈ 2.7 ms at 100 MHz in 1-bit mode; the BIST is
+   faster but destructive, and the loader waits for an auto-started
+   BIST before writing.
+
+`make bootsim` runs exactly this path — empty TCMs, the packed smoke
+image, both read modes — to the program's normal PASS.
+
+### 3a.1 Boot telemetry — read it at startup
+
+`STATUS2` (safety controller, `0x2000_002c`) holds the retry count of
+the load that started this session. **Firmware should read it early and
+report a nonzero count**: a unit that booted after two retries has a
+degrading flash, and this register is the only place that fact appears
+— the next stage is a unit that asserts the error pin and never boots.
+A failed boot itself needs no software handling, because none runs: the
+core is held and the error pin is driven **ungated**, exactly because
+no software exists at that moment to configure a reaction.
+
 ## 4. Traps
 
 ### 4.1 Model

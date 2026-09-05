@@ -63,7 +63,8 @@ module tb_fi;
   logic [31:0] ext_pwdata;
 
   cdriscv_32s_20_subsys #(
-      .Lockstep (1'b1), .ItcmWords (4096), .DtcmWords (4096), .MbistAuto (1'b0)
+      .Lockstep (1'b1), .ItcmWords (4096), .DtcmWords (4096), .MbistAuto (1'b0),
+      .BootEnable (1'b0)   // TCM preloaded by the bench; no flash here
   ) dut (
       .clk_i (clk), .rst_ni (rst_n), .ref_clk_i (ref_clk), .ref_rst_ni (ref_rst_n),
       .boot_addr_i (32'h0), .fetch_enable_i (fetch_enable),
@@ -77,7 +78,10 @@ module tb_fi;
       // JTAG parked; trst_ni low so the tck domain resets to 0, not X
       .tck_i (1'b0), .tms_i (1'b0), .tdi_i (1'b0), .trst_ni (1'b0),
       .tdo_o (), .tdo_oe_o (),
-      .core_sleep_o (), .retire_valid_o (), .retire_pc_o (), .retire_instr_o ()
+      .core_sleep_o (), .retire_valid_o (), .retire_pc_o (), .retire_instr_o (),
+      // boot loader bypassed (BootEnable=0); pads parked
+      .qspi_sclk_o (), .qspi_cs_no (), .qspi_io_i (4'b0),
+      .qspi_io_o (), .qspi_io_oe_o ()
   );
 
   // exit register in the SoC expansion slot

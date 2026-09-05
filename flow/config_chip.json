@@ -40,16 +40,13 @@
     "dir::../rtl/debug/cdriscv_32s_20_jtag_tap.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_bridge.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_win.sv",
+    "dir::../rtl/boot/cdriscv_32s_20_qspi_boot.sv",
     "dir::../rtl/cdriscv_32s_20_subsys.sv",
     "dir::../rtl/chip/cdriscv_32s_20_chip.sv"
   ],
   "CLOCK_PORT": "clk_i",
   "CLOCK_NET": "clk_i",
   "CLOCK_PERIOD": 40,
-  "//timing": "buf_4 + 0.35 resizer setup margins: the probe2 experiment measured the fetch critical path at -0.719 ns with buf_1 repair chains and -0.059 ns with buf_4 + 0.30; the extra 0.05 covers the remaining 59 ps over 2 endpoints.",
-  "SYNTH_BUFFER_CELL": "sg13g2_buf_4/A/X",
-  "PL_RESIZER_SETUP_SLACK_MARGIN": 0.35,
-  "GRT_RESIZER_SETUP_SLACK_MARGIN": 0.35,
   "FALLBACK_SDC": "dir::cdriscv_32s_20.sdc",
   "//sdc": "LibreLane's base.sdc constrains only the first clock and says so. This design has three (clk_i, ref_clk_i, tck_i); in the v2first run the other two were signed off with no constraint at all and ref_clk_i's 107 flops got a fanout-repair buffer chain instead of a CTS tree. flow/cdriscv_32s_20.sdc constrains all three and declares them asynchronous.",
   "PL_TARGET_DENSITY_PCT": 55,
@@ -172,7 +169,7 @@
     ".*u_par.* VDD VSS VDDARRAY! VSS!"
   ],
   "PDN_CONNECT_MACROS_TO_GRID": true,
-  "//die": "Die 2400x3500: ring depth is 140 (sealring, PAD_EDGE_SPACING) + 180 (pad depth) per edge, core inset a further 30.  Sides hold S/E/N/W = 16/34/19/30 pads of 80 um; per-side fill checked against librelane pad_cfg.tcl arithmetic by the generator.",
+  "//die": "Die 2400x3500: ring depth is 140 (sealring, PAD_EDGE_SPACING) + 180 (pad depth) per edge, core inset a further 30.  Sides hold S/E/N/W = 22/34/19/30 pads of 80 um; per-side fill checked against librelane pad_cfg.tcl arithmetic by the generator.",
   "PAD_SOUTH": [
     "pad_iovss_s",
     "pad_iovdd_s",
@@ -189,7 +186,13 @@
     "pad_err_pin_o",
     "pad_reset_req_o",
     "pad_fault_any_o",
-    "pad_core_sleep_o"
+    "pad_core_sleep_o",
+    "pad_qspi_sclk_o",
+    "pad_qspi_cs_no",
+    "pad_qspi_io_0",
+    "pad_qspi_io_1",
+    "pad_qspi_io_2",
+    "pad_qspi_io_3"
   ],
   "PAD_EAST": [
     "pad_fault_ext_i_0",
@@ -280,8 +283,6 @@
     "pad_iovdd_w",
     "pad_iovss_w"
   ],
-  "//sealring": "DELIBERATELY DISABLED (2026-09-03): the PDK sealring PCell emits INT32_MIN far-coordinates for its edge arms on ALL 20 layers, for every size including the PDK docstring example (reproduce: sealring.py -rd width=1300.0 -rd height=1300.0), and the corrupt geometry crashes the density filler (KLayout dbPolygonGenerators m_open.empty). The die reserves the 140 um allowance via PAD_EDGE_SPACING, so the ring can be added post-fix without floorplan changes. Reported upstream; see doc/chip.md and verification_findings_20.md.",
-  "PAD_CFG": "dir::pad_cfg_chip.tcl",
   "PAD_SPACING_MULTIPLE": 2,
   "//pads": "Pad instance lists are ordered: ascending x for south/north, ascending y for east/west.  Placement coordinates are computed by OpenROAD.PadRing (even spacing); this list order IS the placement data.",
   "LINTER_DISABLE_WARNINGS": [

@@ -44,3 +44,4 @@ rtl/periph/cdriscv_32s_20_clint_obi.sv
 rtl/debug/cdriscv_32s_20_jtag_tap.sv
 rtl/debug/cdriscv_32s_20_dbg_bridge.sv
 rtl/debug/cdriscv_32s_20_dbg_win.sv
+rtl/boot/cdriscv_32s_20_qspi_boot.sv

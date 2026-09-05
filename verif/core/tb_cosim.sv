@@ -87,7 +87,8 @@ module tb_cosim #(
       .ItcmWords (ItcmWords),
       .DtcmWords (4096),
       .ItcmBase  (32'h8000_0000),
-      .MbistAuto (1'b0)
+      .MbistAuto (1'b0),
+      .BootEnable(1'b0)   // TCM preloaded by the runner; no flash here
   ) dut (
       .clk_i          (clk),
       .rst_ni         (rst_n),
@@ -130,7 +131,13 @@ module tb_cosim #(
       .core_sleep_o   (),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),
-      .retire_instr_o (retire_instr)
+      .retire_instr_o (retire_instr),
+      // boot loader bypassed (BootEnable=0); pads parked
+.qspi_sclk_o    (),
+      .qspi_cs_no     (),
+      .qspi_io_i      (4'b0),
+      .qspi_io_o      (),
+      .qspi_io_oe_o   ()
   );
 
   int unsigned stall_pct;

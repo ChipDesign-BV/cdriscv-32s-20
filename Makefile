@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 ABI        := ilp32
 
-.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean block block-20 block-alu block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean bootsim bootsim-fault block block-20 block-alu block-qspi block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -86,6 +86,43 @@ TCM_WORDS ?= 4096
 
 $(BUILD)/%.hex: $(BUILD)/%.bin
 	$(PYTHON) scripts/mkimage.py $< $@ --words $(TCM_WORDS)
+
+# ------------------------------------------------------------- bootsim
+# The QSPI boot path at system level: EMPTY TCMs, the flash model holds
+# a real image of the smoke program (packed by scripts/mkbootimg.py),
+# and the run must end in the program's own PASS.  Run twice: 1-bit
+# payload and quad payload.  --pad0 64 gives the prefetcher valid ECC
+# codewords past the program end (finding V4-F2) without paying for a
+# full-array load over SPI.
+$(BUILD)/boot_flash.hex: $(BUILD)/prog.itcm.bin $(BUILD)/prog.dtcm.bin scripts/mkbootimg.py
+	$(PYTHON) scripts/mkbootimg.py $@ \
+	  --seg 0x00000000 $(BUILD)/prog.itcm.bin \
+	  --seg 0x10000000 $(BUILD)/prog.dtcm.bin --pad0 64
+
+$(BUILD)/boot_flash_quad.hex: $(BUILD)/prog.itcm.bin $(BUILD)/prog.dtcm.bin scripts/mkbootimg.py
+	$(PYTHON) scripts/mkbootimg.py $@ \
+	  --seg 0x00000000 $(BUILD)/prog.itcm.bin \
+	  --seg 0x10000000 $(BUILD)/prog.dtcm.bin --pad0 64 --quad
+
+$(BUILD)/tb_cdriscv_boot.vvp: $(RTL) verif/models/spi_norflash_model.sv tb/tb_cdriscv_boot.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_cdriscv_boot $(RTL) \
+	  verif/models/spi_norflash_model.sv tb/tb_cdriscv_boot.sv
+
+bootsim: $(BUILD)/tb_cdriscv_boot.vvp $(BUILD)/boot_flash.hex $(BUILD)/boot_flash_quad.hex
+	$(VVP) $(BUILD)/tb_cdriscv_boot.vvp +FLASH_HEX=$(BUILD)/boot_flash.hex \
+	  | tee $(BUILD)/bootsim.log
+	@grep -q "\[TB\] PASS" $(BUILD)/bootsim.log
+	$(VVP) $(BUILD)/tb_cdriscv_boot.vvp +FLASH_HEX=$(BUILD)/boot_flash_quad.hex \
+	  | tee $(BUILD)/bootsim_quad.log
+	@grep -q "\[TB\] PASS" $(BUILD)/bootsim_quad.log
+
+bootsim-fault: $(BUILD)/tb_cdriscv_boot.vvp $(BUILD)/boot_flash.hex $(BUILD)/boot_flash_quad.hex
+	$(VVP) $(BUILD)/tb_cdriscv_boot.vvp +FLASH_HEX=$(BUILD)/boot_flash.hex +CORRUPT \
+	  | tee $(BUILD)/bootsim.log
+	@grep -q "PASS corrupt-image" $(BUILD)/bootsim.log
+	$(VVP) $(BUILD)/tb_cdriscv_boot.vvp +FLASH_HEX=$(BUILD)/boot_flash_quad.hex +CORRUPT \
+	  | tee $(BUILD)/bootsim_quad.log
+	@grep -q "PASS corrupt-image" $(BUILD)/bootsim_quad.log
 
 # -------------------------------------------------------- block benches
 # Each block bench prints "PASS" or "FAIL"; the recipe greps for the
@@ -241,6 +278,17 @@ block-if-align: $(BUILD)/tb_if_align.vvp
 	$(VVP) $< | tee $(BUILD)/block_if_align.log
 	@grep -q "PASS" $(BUILD)/block_if_align.log
 
+# The QSPI boot loader against the behavioural NOR flash model and a
+# TCM-shaped write monitor.  Mutation-validated by scripts/mutate_qspi.py.
+$(BUILD)/tb_qspi_boot.vvp: rtl/boot/cdriscv_32s_20_qspi_boot.sv \
+                           verif/models/spi_norflash_model.sv \
+                           verif/block/qspi_boot/tb_qspi_boot.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_qspi_boot $^
+
+block-qspi: $(BUILD)/tb_qspi_boot.vvp
+	$(VVP) $< | tee $(BUILD)/block_qspi.log
+	@grep -q "PASS" $(BUILD)/block_qspi.log
+
 # ---------------------------------------------------------------------
 # Equivalence against the frozen variant-1 reference in verif/ref/.
 # Those files are never synthesised and never edited -- see
@@ -263,7 +311,7 @@ block-csr-equiv: $(BUILD)/tb_csr_equiv.vvp
 	@grep -q "PASS" $(BUILD)/block_csr_equiv.log
 
 block-20: block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg \
-          block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv
+          block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-qspi
 
 block: block-alu block-ecc block-multdiv block-clkmon block-20
 
@@ -892,9 +940,13 @@ gate-fsm: $(BUILD)/gate/tb_gate_fsm.vvp
 # Silently -- which is why the first run looked slow rather than wrong.
 GATE_RTL := $(filter-out rtl/bus/cdriscv_32s_20_tcm.sv,$(RTL))
 
+# -G BootEnable=0: the functional gate benches preload the TCMs and
+# have no flash, exactly like the RTL benches, and a netlist bakes its
+# parameters -- so synthesis must be told, not the (parameterless)
+# netlist instantiation.
 $(BUILD)/gate/cdriscv_32s_20_subsys_gate.v: $(RTL) verif/gate/cdriscv_32s_20_tcm_bb.sv | $(BUILD)/gate
 	$(YOSYS) -p "plugin -i slang; \
-	  read_slang --top $(TOP) verif/gate/cdriscv_32s_20_tcm_bb.sv $(GATE_RTL); \
+	  read_slang --top $(TOP) -G BootEnable=0 verif/gate/cdriscv_32s_20_tcm_bb.sv $(GATE_RTL); \
 	  synth -top $(TOP) -flatten; \
 	  dfflibmap -liberty $(GATE_LIB); \
 	  abc -liberty $(GATE_LIB); \
@@ -1156,9 +1208,13 @@ $(BUILD)/gate/cdriscv_32s_20_subsys_sta_fix.v: $(BUILD)/gate/cdriscv_32s_20_subs
 SRAM_PDK  ?= $(dir $(patsubst %/,%,$(GATE_PDK)))sg13g2_sram
 OPENROAD  ?= /foss/tools/openroad/bin/openroad
 
+# -G BootEnable=0 here too: this netlist feeds tb_sdf_subsys and
+# gate-arch, which preload the TCMs.  The cost is that the fmax number
+# excludes the boot mux; the chip flow (config_chip.json, BootEnable=1)
+# is where that path is timed.
 $(BUILD)/gate/cdriscv_32s_20_subsys_pd.v: $(RTL) verif/gate/cdriscv_32s_20_tcm_macro.sv | $(BUILD)/gate
 	$(YOSYS) -p "plugin -i slang; \
-	  read_slang --top $(TOP) verif/gate/cdriscv_32s_20_tcm_macro.sv $(GATE_RTL); \
+	  read_slang --top $(TOP) -G BootEnable=0 verif/gate/cdriscv_32s_20_tcm_macro.sv $(GATE_RTL); \
 	  connect -set boot_addr_i 32'h00000000; \
 	  synth -top $(TOP) -flatten; \
 	  dfflibmap -liberty $(GATE_LIB); \

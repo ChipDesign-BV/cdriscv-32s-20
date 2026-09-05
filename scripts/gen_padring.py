@@ -55,7 +55,8 @@ SITE_W, _ = SIZES["sg13g2_ioSite"]            # 1 x 180 expected
 assert (PAD_W, PAD_D) == (80.0, 180.0), f"pad size changed: {PAD_W}x{PAD_D}"
 assert CORNER_W == 180.0, f"corner size changed: {CORNER_W}"
 assert SITE_W == 1.0, f"io site width changed: {SITE_W}"
-for cell in ("sg13g2_IOPadOut4mA", "sg13g2_IOPadTriOut4mA", "sg13g2_IOPadVdd",
+for cell in ("sg13g2_IOPadOut4mA", "sg13g2_IOPadTriOut4mA",
+             "sg13g2_IOPadInOut4mA", "sg13g2_IOPadVdd",
              "sg13g2_IOPadVss", "sg13g2_IOPadIOVdd", "sg13g2_IOPadIOVss"):
     assert SIZES[cell] == (80.0, 180.0), f"{cell} not 80x180: {SIZES[cell]}"
 
@@ -111,6 +112,9 @@ EXPECTED = {
     "core_sleep_o": ("output", 1),
     "retire_valid_o": ("output", 1), "retire_pc_o": ("output", 32),
     "retire_instr_o": ("output", 32),
+    "qspi_sclk_o": ("output", 1), "qspi_cs_no": ("output", 1),
+    "qspi_io_i": ("input", 4), "qspi_io_o": ("output", 4),
+    "qspi_io_oe_o": ("output", 4),
 }
 
 ports = parse_ports(SUBSYS_SV)
@@ -138,6 +142,12 @@ UNPADDED_OPEN = [          # outputs left unconnected
     "retire_valid_o", "retire_pc_o", "retire_instr_o",
 ]
 # tdo_oe_o is consumed internally by the TDO tri-state pad (not a chip port).
+#
+# The three QSPI io buses (qspi_io_i / qspi_io_o / qspi_io_oe_o) map onto
+# FOUR bidirectional pads and ONE chip-level inout port qspi_io[3:0]:
+# per bit, c2p = io_o, p2c = io_i, c2p_en = io_oe_o (the pad model
+# implements `assign pad = c2p_en ? c2p : 1'bz; assign p2c = pad;`).
+QSPI_IO_PORTS = ("qspi_io_i", "qspi_io_o", "qspi_io_oe_o")
 
 # ----------------------------------------------------------------------
 # 3. The pinout: ordered per side.  List order == ascending coordinate
@@ -146,6 +156,7 @@ UNPADDED_OPEN = [          # outputs left unconnected
 IN_ = "sg13g2_IOPadIn"
 OUT4 = "sg13g2_IOPadOut4mA"
 TRI4 = "sg13g2_IOPadTriOut4mA"
+BID4 = "sg13g2_IOPadInOut4mA"
 PWR = {"vdd": "sg13g2_IOPadVdd", "vss": "sg13g2_IOPadVss",
        "iovdd": "sg13g2_IOPadIOVdd", "iovss": "sg13g2_IOPadIOVss"}
 
@@ -158,11 +169,19 @@ def sig(port, bit=None):
 def pwr(kind, side_letter):
     return ("pwr", f"{kind}_{side_letter}", None, PWR[kind])
 
+def qio(bit):
+    # one bidirectional QSPI data pad; serves one bit of ALL THREE
+    # qspi_io_* subsystem ports at once
+    assert 0 <= bit < 4
+    return ("qio", "qspi_io", bit, BID4)
+
 def bus(port):
     return [sig(port, b) for b in range(EXPECTED[port][1])]
 
 PINOUT = {
-    # SOUTH: system clock domain entry, JTAG grouped, safety status outputs.
+    # SOUTH: system clock domain entry, JTAG grouped, safety status
+    # outputs, and the QSPI boot flash grouped at the south-east corner.
+    # 22 pads x 80 um fill the 1760 um side exactly (fill = 0).
     "south": [
         pwr("iovss", "s"), pwr("iovdd", "s"),
         sig("tck_i"), sig("tms_i"), sig("tdi_i"), sig("trst_ni"),
@@ -171,6 +190,8 @@ PINOUT = {
         sig("clk_i"), sig("rst_ni"), sig("fetch_enable_i"),
         sig("err_pin_o"), sig("reset_req_o"), sig("fault_any_o"),
         sig("core_sleep_o"),
+        sig("qspi_sclk_o"), sig("qspi_cs_no"),
+        qio(0), qio(1), qio(2), qio(3),
     ],
     # EAST: external fault inputs then interrupts (digital board side).
     "east": (
@@ -199,25 +220,33 @@ def inst_name(entry):
     _, port, bit, _ = entry
     return f"pad_{port}" if bit is None else f"pad_{port}_{bit}"
 
-# every signal port padded exactly once, full width
+# every signal port padded exactly once, full width; each qio pad covers
+# one bit of all three qspi_io_* ports
 padded_bits = {}
+qio_bits = set()
 for side, entries in PINOUT.items():
     for e in entries:
         if e[0] == "sig":
             key = (e[1], e[2])
             assert key not in padded_bits, f"double pad: {key}"
             padded_bits[key] = side
+        elif e[0] == "qio":
+            assert e[2] not in qio_bits, f"double qio pad: {e[2]}"
+            qio_bits.add(e[2])
+assert qio_bits == {0, 1, 2, 3}, qio_bits
 for port, (d, w) in EXPECTED.items():
     if port in UNPADDED_TIED or port in UNPADDED_OPEN or port == "tdo_oe_o":
         assert not any(p == port for p, _ in padded_bits), f"{port} padded"
         continue
+    if port in QSPI_IO_PORTS:
+        continue                       # covered by the qio pads, asserted above
     want = {(port, None)} if w == 1 else {(port, b) for b in range(w)}
     have = {k for k in padded_bits if k[0] == port}
     assert have == want, f"{port}: padded bits {have} != {want}"
 
-N_SIG = sum(1 for k in padded_bits)
+N_SIG = sum(1 for k in padded_bits) + len(qio_bits)
 N_PWR = sum(1 for es in PINOUT.values() for e in es if e[0] == "pwr")
-assert N_SIG == 83 and N_PWR == 16, (N_SIG, N_PWR)
+assert N_SIG == 89 and N_PWR == 16, (N_SIG, N_PWR)
 
 # ----------------------------------------------------------------------
 # 4. Die size + the exact pad_cfg.tcl placement arithmetic
@@ -257,6 +286,9 @@ for side in side_order:
         if kind == "sig":
             netname = port if bit is None else f"{port}[{bit}]"
             drive = ("4 mA" if cell in (OUT4, TRI4) else "-")
+        elif kind == "qio":
+            netname = f"{port}[{bit}]"
+            drive = "4 mA"
         else:
             netname = "(pad ring)"
             drive = "-"
@@ -269,6 +301,8 @@ for pn, pos, net, cell, drv in rows:
 pad_table = "\n".join(tablelines)
 
 def port_decl(port):
+    if port == "qspi_io":
+        return "    inout  wire [3:0] qspi_io"
     d, w = EXPECTED[port]
     dstr = "input  wire" if d == "input" else "output wire"
     wstr = f"[{w-1}:0] " if w > 1 else ""
@@ -276,15 +310,20 @@ def port_decl(port):
 
 chip_ports = [p for p, _ in sorted(
     ((p, EXPECTED[p]) for p in EXPECTED
-     if p not in UNPADDED_TIED and p not in UNPADDED_OPEN and p != "tdo_oe_o"),
-    key=lambda kv: list(EXPECTED).index(kv[0]))]
+     if p not in UNPADDED_TIED and p not in UNPADDED_OPEN
+     and p != "tdo_oe_o" and p not in QSPI_IO_PORTS),
+    key=lambda kv: list(EXPECTED).index(kv[0]))] + ["qspi_io"]
 
 core_nets = []
 for p in chip_ports:
+    if p == "qspi_io":
+        continue                     # its core nets are the three below
     d, w = EXPECTED[p]
     wstr = f"[{w-1}:0] " if w > 1 else ""
     core_nets.append(f"  wire {wstr}{p}_core;")
 core_nets.append("  wire tdo_oe_o_core;")
+for p in QSPI_IO_PORTS:
+    core_nets.append(f"  wire [3:0] {p}_core;")
 
 pad_insts = []
 for side in side_order:
@@ -296,7 +335,11 @@ for side in side_order:
             pad_insts.append(f"  (* keep *) {cell} {name} ();")
             continue
         sel = "" if bit is None else f"[{bit}]"
-        if cell == IN_:
+        if kind == "qio":
+            conn = (f".pad(qspi_io{sel}), .c2p(qspi_io_o_core{sel}), "
+                    f".p2c(qspi_io_i_core{sel}), "
+                    f".c2p_en(qspi_io_oe_o_core{sel})")
+        elif cell == IN_:
             conn = f".pad({port}{sel}), .p2c({port}_core{sel})"
         elif cell == OUT4:
             conn = f".pad({port}{sel}), .c2p({port}_core{sel})"
@@ -355,6 +398,13 @@ CHIP_SV.write_text(f"""\
 // active-high c2p_en driven by tdo_oe_o (the pad model implements
 //   assign pad = c2p_en ? c2p : 1'bz;
 // and the subsys asserts tdo_oe_o only while the TAP drives TDO).
+//
+// QSPI boot flash: four sg13g2_IOPadInOut4mA data pads expose ONE chip
+// inout bus qspi_io[3:0]; per bit c2p = qspi_io_o, p2c = qspi_io_i,
+// c2p_en = qspi_io_oe_o (same pad equation as TDO, plus the p2c input
+// path).  The loader drives io_oe per SPI phase; in quad data phases
+// all four lines are flash-driven inputs.  Grouped with qspi_sclk_o /
+// qspi_cs_no beside the south-east corner.
 //
 // Die {DIE_W:.0f} x {DIE_H:.0f} um, {len(rows)} pads + 4 corners.
 // Pad numbering runs counter-clockwise from the south-west corner;

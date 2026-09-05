@@ -82,20 +82,27 @@ module tb_cdriscv_subsys;
   // (see the instantiation), so tdo can only ever idle.
   logic        tdo, tdo_oe;
 
+  // QSPI outputs: observed only -- the loader is bypassed
+  // (BootEnable=0), so they can only ever idle.
+  logic        qspi_sclk, qspi_cs_n;
+  logic [3:0]  qspi_io_o, qspi_io_oe;
+
   // A gate level netlist is one *configuration*, not a parameterisable
   // module -- synthesis has already resolved the parameters -- so the
   // overrides have to go away for that build.  They are the RTL
-  // defaults in any case, which is what makes the two runs comparable;
-  // if they ever diverge, the gate flow must pass matching -G options
-  // to synthesis rather than the testbench overriding here.
+  // defaults in any case -- except BootEnable, which this bench sets 0
+  // (the TCMs are preloaded, there is no flash) while the RTL default
+  // is 1: the gate flow therefore passes -G BootEnable=0 to synthesis,
+  // exactly as this comment always said it must.
 `ifdef GATE_LEVEL
   cdriscv_32s_20_subsys dut (
 `else
   cdriscv_32s_20_subsys #(
-      .Lockstep  (1'b1),
-      .ItcmWords (4096),
-      .DtcmWords (4096),
-      .MbistAuto (1'b0)
+      .Lockstep   (1'b1),
+      .ItcmWords  (4096),
+      .DtcmWords  (4096),
+      .MbistAuto  (1'b0),
+      .BootEnable (1'b0)   // TCMs are preloaded below; no flash on this bench
   ) dut (
 `endif
       .clk_i          (clk),
@@ -139,7 +146,13 @@ module tb_cdriscv_subsys;
       .core_sleep_o   (core_sleep),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),
-      .retire_instr_o (retire_instr)
+      .retire_instr_o (retire_instr),
+      // boot loader bypassed (BootEnable=0); pads parked
+      .qspi_sclk_o    (qspi_sclk),
+      .qspi_cs_no     (qspi_cs_n),
+      .qspi_io_i      (4'b0),
+      .qspi_io_o      (qspi_io_o),
+      .qspi_io_oe_o   (qspi_io_oe)
   );
 
   // ------------------------------------------------------------------

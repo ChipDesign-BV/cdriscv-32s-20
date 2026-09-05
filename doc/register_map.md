@@ -75,6 +75,7 @@ available in the execute stage.
 | `0x20` | `RAW` | RO | fault inputs before the sticky stage |
 | `0x24` | `SELFTEST` | WO | [0] lockstep mismatch [1] single bit ECC error [2] double bit ECC error [3] ECC target: 0 = D-TCM, 1 = I-TCM |
 | `0x28` | `CFG_SRC` | RO | which register group raised the configuration parity fault (STATUS bit 13): [0] safety controller [1] watchdog [2] clock monitor [3] interrupt controller [4] timer [5] AMS [6] core `mtvec`. Sticky; cleared by the W1C of STATUS bit 13 |
+| `0x2c` | `STATUS2` | RO | boot telemetry: [0] `boot_fault` (readable only after a warm restart — a cold boot that faulted never releases the core; the **ungated error pin** is the live signal for that case), [1] `boot_done`, [5:2] retry count of the load that produced this session — nonzero after a successful boot means a flash that is failing in the field, caught before it kills the unit |
 
 **STATUS bit 13 (configuration parity) is special: it latches and
 reacts unconditionally.** Every configuration register group in the
@@ -115,6 +116,13 @@ Fault bit assignment (`STATUS`, `ENABLE`, `REACT_*`, `RAW`):
 | 14 | E2E bus protection: payload or address mismatch on a TCM link (took the former spare bit, so no existing bit moved) |
 | 15 | fault injection self test |
 | 16..31 | `fault_ext_i[15:0]` from the SoC |
+
+**No bit for the QSPI boot fault — deliberately open.** All sixteen
+internal indices are allocated (bit 14 took the former spare, bit 15 is
+the self test) and bits 16..31 belong to the SoC, so appending
+`FLT_BOOT` without moving existing bits is impossible.  Until an index
+is agreed, `boot_fault` is observable as JTAG `STATUS[6]` (§10) and the
+core is held by construction — see `doc/variant_status.md` §3 item 10.
 
 ## 4. Watchdog (slot 1)
 
@@ -285,7 +293,7 @@ discarded — there is no writable state behind this window at all.
 | Offset | Name | Description |
 |--------|------|-------------|
 | `0x00` | `IDCODE` | `0x0CD1_507B` — same value the TAP's IDCODE DR returns, so a scan can confirm it is talking to the window rather than to a floating bus |
-| `0x04` | `STATUS` | [0] `core_sleep` [1] `fault_any` [2] `err_pin` [3] `reset_req` [4] `retire_seen` |
+| `0x04` | `STATUS` | [0] `core_sleep` [1] `fault_any` [2] `err_pin` [3] `reset_req` [4] `retire_seen` [5] `boot_done` [6] `boot_fault` — 5/6 appended for the QSPI boot loader; with `BootEnable=0` they read 1/0 (loader bypassed) |
 | `0x08` | `FAULTINT` | internal fault vector, as the safety controller sees it (16 bits) |
 | `0x0c` | `FAULTEXT` | external fault vector, `fault_ext_i` (16 bits) |
 | `0x10` | `LASTPC` | PC of the last retired instruction |

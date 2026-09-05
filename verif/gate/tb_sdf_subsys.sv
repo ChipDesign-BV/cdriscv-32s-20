@@ -121,7 +121,14 @@ module tb_sdf_subsys;
       .core_sleep_o   (core_sleep),
       .retire_valid_o (retire_valid),
       .retire_pc_o    (retire_pc),
-      .retire_instr_o (retire_instr)
+      .retire_instr_o (retire_instr),
+      // boot loader configured out of this netlist (synthesised with
+      // -G BootEnable=0 so the bench can preload the TCMs); pads parked
+      .qspi_sclk_o    (),
+      .qspi_cs_no     (),
+      .qspi_io_i      (4'b0),
+      .qspi_io_o      (),
+      .qspi_io_oe_o   ()
   );
 
   // ------------------------------------------------------------------

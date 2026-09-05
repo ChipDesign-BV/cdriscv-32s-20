@@ -40,6 +40,7 @@
     "dir::../rtl/debug/cdriscv_32s_20_jtag_tap.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_bridge.sv",
     "dir::../rtl/debug/cdriscv_32s_20_dbg_win.sv",
+    "dir::../rtl/boot/cdriscv_32s_20_qspi_boot.sv",
     "dir::../rtl/cdriscv_32s_20_subsys.sv",
     "dir::cdriscv_32s_20_subsys_hard.sv"
   ],

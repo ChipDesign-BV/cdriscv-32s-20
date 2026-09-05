@@ -40,6 +40,7 @@ table:
 | `clint_obi` | req/gnt/rvalid adapter for the CLINT (rejects sub-word) | yes |
 | `e2e` | end-to-end bus payload protection (generator/checker pair) | yes, via `e2e_link` |
 | `e2e_link` | E2E master/slave endpoints for one protected bus link | yes, both TCM links |
+| `qspi_boot` | QSPI-master boot loader: fills the TCMs from external NOR flash at cold reset, verifies a CRC32, and gates the core's fetch until it passes (2026-09-04) | yes, when `BootEnable=1` (the chip top); the preloading benches build `BootEnable=0` |
 
 ---
 
@@ -65,8 +66,9 @@ anything in the RTL.
 | `decoder` | `block-decoder-equiv` | 1 073 728 | 10/10 | **variant 1's decoder**, instantiated beside it |
 | `csr` | `block-csr-equiv` | 400 018 | 10/10 | **variant 1's CSR file**, in lockstep |
 | `e2e_link` | `block-e2e-link` | 12 024 | 10/10 | corruptible wires between the two endpoints, in front of a TCM-shaped slave; only fault classes the Hsiao fold detects with certainty, so every expectation is deterministic — since 2026-09-02 including byte-enable corruption (write beat and read request), and two be mutants: the fold-drop and the live-vs-held phase |
+| `qspi_boot` | `block-qspi` | 41 | 8/8 | the behavioural NOR flash model plus a TCM-shaped write monitor; the loaded words are compared against the arrays the bench recorded while BUILDING the image, and the CRC algorithm is cross-implemented by `scripts/mkbootimg.py` (python `binascii.crc32`) driving the same RTL in `make bootsim` (which boots the smoke program through the full QSPI path, 1-bit and quad, to its normal PASS: 11 037 / 3 429 cycles to `boot_done`) |
 
-`make block-20` runs all thirteen: **2 087 437 checks** (per-bench
+`make block-20` runs all fourteen: **2 087 478 checks** (per-bench
 counts above, from `build/block_*.log`; `block-e2e` grew to 154 096
 with the 2026-09-02 byte-enable fault classes).
 
@@ -633,6 +635,71 @@ record.
    gate-level simulation, now waiting on the `chip1` netlist rather
    than on a harden that had not run — and the FMEDA population
    refresh from that same netlist.)*
+
+10. **The chip can now load firmware — there was no way to fill the
+    volatile I-TCM on real silicon at all.** Every path into the I-TCM
+    was simulation-only (`$readmemh`) or destructive (BIST): the tenth
+    module, `cdriscv_32s_20_qspi_boot` (2026-09-04), reads a boot image
+    from external SPI NOR flash at cold reset — 1-bit 03h for the
+    header, switching to Quad I/O EBh for the payload only when the
+    header's flag asks — validates magic/reserved-flags/segment bounds
+    against the same address-map parameters the bus decode uses BEFORE
+    issuing any write, loads an I-TCM segment plus an optional D-TCM
+    segment, and compares one CRC32 (IEEE 802.3) over both payloads.
+    Pass releases the core's fetch (`boot_done` gates it exactly as
+    `mbist_busy` does); any failure — including a progress timeout —
+    retries the whole load up to `BootRetryMax`=3 times and then
+    latches a sticky `boot_fault` with the core never released.
+
+    The integration is one mux, and that is the point: the loader is
+    the temporary data-bus master at the SUBSYSTEM level, selected by
+    the quasi-static `boot_done` register, so its writes flow through
+    the ordinary bus → E2E → TCM-ECC-encode path and the core — and
+    the fetch path that owns the critical timing (§3.8) — is untouched.
+    `BootEnable=0` folds all of it away, which is how every preloading
+    bench keeps its exact prior behaviour (full 16-target regression
+    green, both simulators for the benches that run both).  The chip
+    top gained six pads (105 total, QSPI grouped at the south-east
+    corner, four `sg13g2_IOPadInOut4mA` bidirectionals); the `chip1`
+    harden predates them and the chip must be re-hardened.
+
+    Verification: `block-qspi` (41 checks across ten scenarios: both
+    segment shapes, quad vs 1-bit with the used opcode checked against
+    the flag, corrupt CRC retrying exactly 3 times then faulting
+    without ever releasing, bad magic and two wild-segment shapes
+    faulting with ZERO bus writes, a withheld-grant timeout, a
+    bus-error response, and a second DUT built at `SclkDiv=4`), plus
+    `make bootsim` — the one `BootEnable=1` system bench, empty TCMs,
+    the smoke program packed by `scripts/mkbootimg.py`, run to its
+    normal PASS in both read modes.  Mutants **8/8 killed**
+    (`scripts/mutate_qspi.py`: CRC ignored, magic ignored, bounds
+    dropped, retry cap dropped, release before the verdict, quad flag
+    ignored, non-sticky fault, watchdog disabled).  The CRC is
+    cross-implemented (SV in bench and RTL, python in the packer), so
+    a self-consistent-but-wrong polynomial cannot pass both.
+
+    **Resolved (2026-09-05, owner decision): no FLT bit at all — the
+    boot fault takes a different road.** All sixteen internal FLT
+    indices are allocated and [31:16] belong to `fault_ext_i`, so any
+    packed-vector home would have moved existing bits. Instead:
+
+    * `boot_fault` drives **`err_pin_o` ungated** — like configuration
+      parity, and for a stronger reason: a failed boot means no
+      software *exists* to configure a reaction or clear a status. The
+      pin is the only voice the chip has.
+    * A new read-only **`STATUS2`** register (safety controller
+      `0x2c`, appended — nothing moves) carries what *successful*
+      boots produce: `[0]` boot_fault (meaningful after a warm
+      restart), `[1]` boot_done, `[5:2]` the retry count. A nonzero
+      retry count after a clean boot is a flash dying in the field,
+      caught while the unit still works.
+    * JTAG STATUS[6] keeps the sticky fault for the held-core case.
+
+    Verified end to end by `bootsim-fault` (corrupt image → 3 retries,
+    sticky fault, err_pin high, **zero instructions retired**) and a
+    `regwalk` decode check; both mutation-covered (the err-pin OR
+    dropped and the STATUS2 decode zeroed are killed mutants in
+    `scripts/mutate_qspi.py`).
 
 ---
 

@@ -47,7 +47,12 @@ module cdriscv_32s_20_subsys_hard (
     output wire        core_sleep_o,
     output wire        retire_valid_o,
     output wire [31:0] retire_pc_o,
-    output wire [31:0] retire_instr_o
+    output wire [31:0] retire_instr_o,
+    output wire        qspi_sclk_o,
+    output wire        qspi_cs_no,
+    input  wire [3:0]  qspi_io_i,
+    output wire [3:0]  qspi_io_o,
+    output wire [3:0]  qspi_io_oe_o
 );
   cdriscv_32s_20_subsys u_sub (
       .clk_i          (clk_i),
@@ -88,6 +93,11 @@ module cdriscv_32s_20_subsys_hard (
       .core_sleep_o   (core_sleep_o),
       .retire_valid_o (retire_valid_o),
       .retire_pc_o    (retire_pc_o),
-      .retire_instr_o (retire_instr_o)
+      .retire_instr_o (retire_instr_o),
+      .qspi_sclk_o    (qspi_sclk_o),
+      .qspi_cs_no     (qspi_cs_no),
+      .qspi_io_i      (qspi_io_i),
+      .qspi_io_o      (qspi_io_o),
+      .qspi_io_oe_o   (qspi_io_oe_o)
   );
 endmodule
