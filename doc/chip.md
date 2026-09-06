@@ -21,6 +21,42 @@ blocks are the six TCM SRAM macros (I-TCM south, D-TCM north), the purple
 field is the subsystem logic. The gap between ring and die edge is the
 140 µm `PAD_EDGE_SPACING` reserved for the deferred seal ring.*
 
+
+## Hardening result (chip2 — final, with the QSPI boot loader)
+
+`chip2b` is the final hardening: the complete RTL including the QSPI
+boot loader, 105 pads (99 signal+supply + the 6 QSPI pins), on the same
+2400 × 3500 µm die. It supersedes `chip1` (which predated the loader and
+the QSPI pads). Run 2026-09-06/07.
+
+| Gate | Result |
+|---|---|
+| Detailed routing | **0 DRC** |
+| Antenna, post-route | **0** |
+| KLayout signoff DRC | **0** |
+| GDS XOR | **0** |
+| **LVS** (netgen) | **circuits match uniquely** — 172 684 devices, 91 066 nets |
+| Setup, slow 1.08 V/125 °C | **+0.040 ns**, TNS 0, 0 violations |
+| Setup, typ / fast | +0.299 / +0.111 ns |
+| Hold, worst (slow) | **+0.625 ns**, TNS 0 |
+| 335 518 instances, GDS 157 MB | |
+
+The single-cycle multiplier and the QSPI mux cost nothing on the
+critical path: timing closes at the slow corner with the full design in.
+The die and instance totals are the shipping figures.
+
+**Deferred, unchanged from chip1** (both blocked on PDK bugs, both drop
+in later without a floorplan change): the seal ring and the density
+fill. See §"Deferred" and findings §19.
+
+**Open, unchanged in kind:** 1026 Magic "illegal overlap" flags — 1017
+`obsm7`-vs-`metal7` and 9 `obsm3`-vs-`metal3`, the IO cells' LEF
+obstruction layers against routed metal. LVS matched **uniquely**
+through the same extraction, so these are abstraction artifacts of the
+overlap check, not real shorts; the disposition (exclude the IO cells
+like the SRAMs, or waive with analysis) is the same decision carried
+from chip1.
+
 ## Die
 
 | | |

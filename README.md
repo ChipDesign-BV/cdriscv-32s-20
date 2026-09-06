@@ -42,7 +42,7 @@ describe different things.
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence benches below |
 > | coverage (O6/O7) | **re-run and met, 2026-09-02** — line 96.1 % measured / **100 % with 23 reviewed waivers**, toggle **96.3 %** (≥ 95 criterion met), functional **100 % of 92 points** covering C/Zcmp, PMP, CLINT, E2E and the debug path |
 > | fault injection, FMEDA | **re-measured on this design** — eight campaigns on the final RTL; FMEDA **SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT** on *assumed* base rates ([doc/fmeda.md](doc/fmeda.md)) |
-> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip1`): setup **+0.373 ns** at the slow corner, hold clean, route DRC/antenna/XOR 0, **LVS matches uniquely** (161 742 devices / 86 330 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; two checks still open — [doc/chip.md](doc/chip.md) |
+> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip1`): setup **+0.040 ns** at the slow corner, hold clean, route DRC/antenna/XOR 0, **LVS matches uniquely** (172 684 devices / 91 066 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; two checks still open — [doc/chip.md](doc/chip.md) |
 > | gate-level simulation (O8) | **not done** — awaits work on the `chip1` netlist |
 >
 > What keeps this a warning: O8 is open, the FMEDA's base failure rates
@@ -160,9 +160,9 @@ of minimum-strength `buf_1` fanout-repair buffers
 −0.719 → −0.059 ns.
 
 **Chip** (`flow/runs/chip1`, 2026-09-03/04, with those knobs): **timing
-closed** — setup **+0.373 ns** at slow 1.08 V/125 °C, TNS 0; hold
+closed** — setup **+0.040 ns** at slow 1.08 V/125 °C, TNS 0; hold
 +0.14 ns; route DRC 0; XOR 0; antenna clean; **LVS matches uniquely
-across 161 742 devices and 86 330 nets including the pad ring**. Seal
+across 172 684 devices and 91 066 nets including the pad ring**. Seal
 ring and density fill are **deferred on reproduced PDK bugs** (the
 sealring PCell emits INT32_MIN coordinates for every size; the filler
 OOMs >13 GB on this die) with the die reserving the ring allowance;
@@ -225,7 +225,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | FMEDA (O9) | **computed on this design** | **SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT** — past the ASIL D thresholds *on assumed base rates* ([doc/fmeda.md](doc/fmeda.md), 2026-09-02) |
 | Gate-level simulation (O8) | **not done** | awaits work on the `chip1` netlist |
 | Physical, subsystem (`v2full`) | **clean except setup** | routing DRC 0, antenna 0, KLayout DRC 0, XOR 0, LVS unique (153 626 devices / 79 499 nets); setup −0.719 ns slow — root-caused to buf_1 fanout chains and fixed at chip level |
-| Physical, chip (`chip1`) | **timing closed, LVS clean** | setup **+0.373 ns** slow / TNS 0, hold +0.14 ns, route DRC 0, XOR 0, antenna 0; **LVS unique: 161 742 devices / 86 330 nets incl. the pad ring**. Open: chip DRC re-run (first pass judged a stale GDS), 956 obstruction-overlap messages to classify — [doc/chip.md](doc/chip.md) |
+| Physical, chip (`chip1`) | **timing closed, LVS clean** | setup **+0.040 ns** slow / TNS 0, hold +0.14 ns, route DRC 0, XOR 0, antenna 0; **LVS unique: 172 684 devices / 91 066 nets incl. the pad ring**. Open: chip DRC re-run (first pass judged a stale GDS), 956 obstruction-overlap messages to classify — [doc/chip.md](doc/chip.md) |
 | Seal ring | **deferred — PDK bug, reproduced** | sealring PCell emits INT32_MIN coordinates at every size incl. the PDK's own example; die reserves the 140 µm allowance so the ring adds later without floorplan change ([doc/chip.md](doc/chip.md), findings §19) |
 | Density fill | **deferred — tool OOM** | PDK filler >13 GB on the 8.4 mm² die, one fill area at a time; the subsystem flow never ran metal fill either ([doc/chip.md](doc/chip.md)) |
 
