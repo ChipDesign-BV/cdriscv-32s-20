@@ -488,6 +488,10 @@ chip["PAD_SOUTH"] = [inst_name(e) for e in PINOUT["south"]]
 chip["PAD_EAST"] = [inst_name(e) for e in PINOUT["east"]]
 chip["PAD_NORTH"] = [inst_name(e) for e in PINOUT["north"]]
 chip["PAD_WEST"] = [inst_name(e) for e in PINOUT["west"]]
+# PAD_CFG must survive every regeneration: it wires the terminal
+# placement (pad_cfg_chip.tcl) without which global placement dies
+# with GPL-0326 -- lost once in a regeneration (2026-09-05), never again.
+chip["PAD_CFG"] = "dir::pad_cfg_chip.tcl"
 chip["PAD_SPACING_MULTIPLE"] = SPACING_MULTIPLE
 chip["//pads"] = ("Pad instance lists are ordered: ascending x for "
                   "south/north, ascending y for east/west.  Placement "

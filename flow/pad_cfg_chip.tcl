@@ -18,5 +18,6 @@ set ::env(PAD_PLACE_IO_TERMINALS) "\
     sg13g2_IOPadIn/pad\
     sg13g2_IOPadOut4mA/pad\
     sg13g2_IOPadTriOut4mA/pad\
+    sg13g2_IOPadInOut4mA/pad\
 "
 source $::env(SCRIPTS_DIR)/openroad/common/pad_cfg.tcl
