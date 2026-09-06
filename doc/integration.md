@@ -158,32 +158,46 @@ modulus in the DNL hash, an illegal `inf` bound on an integer
 parameter, and supervisor flags that stayed low when the supply was
 already bad at t = 0 — the one failure a supervisor exists to catch).
 
-**Two models, by simulator class.** Use whichever the simulator can run:
+**Two models, both complete, by simulator class.** Use whichever the
+simulator can run — they cover the same behaviour, expressed two ways:
 
-| model | simulator | covers | drops |
+| model | simulator | how it works | does not model |
 |---|---|---|---|
-| [`adc_ams_emu.va`](../verif/models/adc_ams_emu.va) | full Verilog-AMS (event-driven) | conversion latency, the start→wait→valid FSM, all seven fault modes, aperture jitter, input noise | — |
-| [`adc_ams_emu_osdi.va`](../verif/models/adc_ams_emu_osdi.va) | **OpenVAF / OSDI** (ngspice, VACASK) | transfer function (offset/gain/INL/DNL/over-range), trim DAC with output loading, analog test-bus switch, supervisor flags, the three value-based fault modes | conversion *timing* and the timing-based fault modes — those need the event model |
+| [`adc_ams_emu.va`](../verif/models/adc_ams_emu.va) | full Verilog-AMS (event-driven) | `@(timer)`/`@(cross)` FSM, `transition()` edges, `$rdist_normal` noise | — |
+| [`adc_ams_emu_osdi.va`](../verif/models/adc_ams_emu_osdi.va) | **OpenVAF / OSDI** (ngspice, VACASK) | the *same* behaviour as continuous dynamics — a phase-ramp capacitor for conversion time, track-and-hold nodes for the sample, an integrating counter for `fi_after_n`; asymmetric-RC output drivers for edges | aperture **jitter** (`tjit`) and input **noise** (`vnoise`) — OSDI has no per-evaluation RNG; use static `voff_lsb`/`gerr`/`inl_lsb`/`dnl_lsb`, or the behavioural model for stochastic error |
 
-The split is a paradigm limit, measured not assumed (2026-09-06):
-OpenVAF is an OSDI compact-model compiler with no event engine. On the
-behavioural model it rejects `transition()` and cannot parse vector
-electrical ports (`[11:0]`), and **crashes** (log kept in
-`build/openvaf_adc_emu_crash.log`). The OSDI model is therefore a
-genuine reduction, not a translation: every node is a scalar
-(`data0..data11`, `vin0..vin7`, …), every output a continuous
-contribution, and `valid` is a level rather than a timed pulse. It
-compiles clean (`openvaf adc_ams_emu_osdi.va` → 58 KB `.osdi`) and runs
-in the OSDI flows where the behavioural model cannot. Use the OSDI
-model to exercise the transfer function, `LIMITn`, the DAC and the
-atest bus against a SPICE-class analog environment; use the behavioural
-model for anything about `TIMEOUT`, the `tconv` budget, or the retime
-contract.
+Both keep conversion latency, the start→valid sequencing, `TIMEOUT`,
+and **all seven fault-injection modes**. The OSDI model was the harder
+one and is worth understanding before use: OpenVAF is a compact-model
+compiler with no event engine, so every piece of state lives on an
+internal electrical node and every "event" is a region of a
+continuously ramping phase variable. It was reached by probing what
+this OpenVAF build accepts (2026-09-06) rather than by assumption —
+vector electrical ports (`[11:0]`) do not parse, so every digital bus
+is one scalar node per bit (`data0..data11`, `vin0..vin7`, …), 53 ports
+in all; `transition()` is unsupported, replaced by RC output stages.
+It compiles clean (`openvaf adc_ams_emu_osdi.va` → `.osdi`) and was
+checked in ngspice, not merely compiled: `valid` lands at
+`t(start) + tconv + tsu` to within a nanosecond, codes are exact and
+held until the next conversion, and all seven fault modes reproduce.
 
-The real-number twin the behavioural header once referenced
-(`adc_ams_emu_rnm.sv`) was never committed and does not exist; both
-models keep the DNL hash seedless so such a twin can be written to
-match bit for bit — that remains open.
+Two model-specific behaviours the OSDI header documents in full and
+worth flagging here: the aperture and phase release track start's
+*falling* edge (late by one clock, 40 ns, against `tconv` = 2 µs — a
+continuous track-and-hold cannot act on an edge, and the FSM tolerates
+it because `TIMEOUT` carries margin over `tconv`); and the behavioural
+model itself carried a bug the reformulation had to avoid — a live
+fault-arming comparison that crossed mid-conversion and forced the
+injected code onto the bus while `valid` was high, fixed here by
+latching the arming decision at the aperture.
+
+The full behavioural model rejects OpenVAF outright (it uses
+`transition()` and vector ports, and **crashes** it — log in
+`build/openvaf_adc_emu_crash.log`), which is why the OSDI reformulation
+exists at all. The real-number twin the behavioural header once
+referenced (`adc_ams_emu_rnm.sv`) was never committed and does not
+exist; both models keep the DNL hash seedless so such a twin can be
+written to match bit for bit — that remains open.
 
 ## 3. Reset
 
