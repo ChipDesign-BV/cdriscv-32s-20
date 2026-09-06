@@ -189,6 +189,7 @@ For variant 1's signed-off physical results, see
 * [doc/verification_findings_20.md](doc/verification_findings_20.md) — this variant's evidence log, §1–§19
 * [doc/verification_findings.md](doc/verification_findings.md) — variant 1's evidence log, V0–V52
 * [doc/fmeda.md](doc/fmeda.md) — FMEDA: measured populations and coverage, assumed rates, derived metrics
+* [doc/fpga_ulx3s.md](doc/fpga_ulx3s.md) — bringing the IP up on a ULX3S (ECP5) board, with a verified firmware image
 * [doc/chip.md](doc/chip.md) — the full-chip level: die, pinout, hardening result, deferred items
 * [doc/variant_status.md](doc/variant_status.md) — the per-module, per-objective inventory
 
