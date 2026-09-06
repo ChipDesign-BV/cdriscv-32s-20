@@ -1,0 +1,272 @@
+// -----------------------------------------------------------------------------
+// adc_ams_emu_osdi.va
+//
+// OpenVAF/OSDI-compatible companion to adc_ams_emu.va -- the ADC that sits
+// opposite the cdriscv-32s-20 AMS interface (rtl/periph/cdriscv_32s_20_ams_if,
+// register slot 4; at chip level the same signals appear on pads).
+//
+// WHY A SECOND MODEL EXISTS
+//
+// adc_ams_emu.va is an event-driven Verilog-AMS behavioural model: it uses
+// @(timer), @(cross), transition(), $rdist_normal and a conversion FSM.
+// OpenVAF is an OSDI *compact-model* compiler -- it evaluates continuous
+// contributions inside the simulator's Newton loop and has no event engine.
+// It rejects transition() outright and cannot parse vector electrical ports
+// ([11:0]); on the full model it crashes.  Measured 2026-09-06:
+//   - vector electrical ports  -> parse error / crash
+//   - transition()             -> "not supported by OpenVAF"
+//   - @(timer)/@(cross) timing  -> no event model
+//
+// This model is therefore a genuine reduction, not a translation.  It keeps
+// everything OSDI *can* express continuously and states plainly what it drops.
+//
+// WHAT IS FAITHFUL (identical intent to the behavioural model):
+//   * transfer function: ratiometric quantiser over [vrefn, vrefp], nbits,
+//     offset/gain/INL/DNL, over-range detect -> ana_flag0
+//   * trim DAC: code latched combinationally from dac_data* while dac_we is
+//     high (LEVEL-sensitive here, see caveat), Thevenin output behind rout_dac
+//     with first-order settling -- same electrical behaviour the DUT loads
+//   * analog test bus: a real switch (ron/roff) so loading is visible
+//   * supervisors: ref_bad (ana_flag1), mon_bad (ana_flag2), forced flag3
+//
+// WHAT IS DROPPED (needs the event model -- use adc_ams_emu.va for these):
+//   * conversion LATENCY and the start->wait->valid FSM.  Here `data*` track
+//     the quantised selected channel CONTINUOUSLY and `valid` is a continuous
+//     level derived from start (asserted while start is high, one-shot timing
+//     is not modelled).  This exercises the transfer function, the LIMITn
+//     range check, the DAC and the atest bus against a SPICE-class analog
+//     environment; it does NOT exercise TIMEOUT, the tconv budget, or the
+//     retime contract, which are timing properties.
+//   * the seven fault-injection MODES that depend on timing (timeout, stuck
+//     valid, silent start-drop).  The three that are value-based -- stuck
+//     code, wrong channel, over-range -- are kept as continuous variants.
+//   * input-referred noise ($rdist_normal): OSDI has no per-evaluation RNG;
+//     `voff_lsb` stands in for a static offset.
+//   * bit-accurate DBIT bus: `data*` are driven to 0/vsup levels by ternary
+//     contributions (no transition() shaping); edge times are the solver's.
+//
+// Digital I/O is one SCALAR node per bit (OSDI has no buses): data0..data11,
+// vin0..vin7, ch0..ch2, dac_data0..dac_data11, atest_sel0..3, ana_flag0..3.
+//
+// Compiles clean under OpenVAF (openvaf adc_ams_emu_osdi.va -> .osdi), so it
+// is usable in this tree's ngspice/VACASK OSDI flows, where the behavioural
+// model is not.  See doc/integration.md 2a.
+//
+// (c) 2026 ChipDesign B.V. -- Apache-2.0
+// -----------------------------------------------------------------------------
+
+`include "disciplines.vams"
+
+module adc_ams_emu_osdi (
+    start, ch0, ch1, ch2,
+    valid,
+    data0, data1, data2, data3, data4, data5,
+    data6, data7, data8, data9, data10, data11,
+    dac_we,
+    dac_data0, dac_data1, dac_data2,  dac_data3,  dac_data4,  dac_data5,
+    dac_data6, dac_data7, dac_data8,  dac_data9,  dac_data10, dac_data11,
+    dac_out,
+    atest_en, atest_sel0, atest_sel1, atest_sel2, atest_sel3, atest,
+    ana_flag0, ana_flag1, ana_flag2, ana_flag3,
+    vin0, vin1, vin2, vin3, vin4, vin5, vin6, vin7,
+    vmon, vrefp, vrefn, vss);
+
+  // ---- digital control inputs --------------------------------------------
+  inout start, ch0, ch1, ch2, dac_we, atest_en;
+  electrical start, ch0, ch1, ch2, dac_we, atest_en;
+  inout dac_data0, dac_data1, dac_data2, dac_data3, dac_data4, dac_data5;
+  inout dac_data6, dac_data7, dac_data8, dac_data9, dac_data10, dac_data11;
+  electrical dac_data0, dac_data1, dac_data2, dac_data3, dac_data4, dac_data5;
+  electrical dac_data6, dac_data7, dac_data8, dac_data9, dac_data10, dac_data11;
+  inout atest_sel0, atest_sel1, atest_sel2, atest_sel3;
+  electrical atest_sel0, atest_sel1, atest_sel2, atest_sel3;
+
+  // ---- digital outputs ----------------------------------------------------
+  inout valid;
+  electrical valid;
+  inout data0, data1, data2, data3, data4, data5;
+  inout data6, data7, data8, data9, data10, data11;
+  electrical data0, data1, data2, data3, data4, data5;
+  electrical data6, data7, data8, data9, data10, data11;
+  inout ana_flag0, ana_flag1, ana_flag2, ana_flag3;
+  electrical ana_flag0, ana_flag1, ana_flag2, ana_flag3;
+
+  // ---- analog -------------------------------------------------------------
+  inout vin0, vin1, vin2, vin3, vin4, vin5, vin6, vin7;
+  electrical vin0, vin1, vin2, vin3, vin4, vin5, vin6, vin7;
+  inout vmon, vrefp, vrefn, vss, dac_out, atest;
+  electrical vmon, vrefp, vrefn, vss, dac_out, atest;
+
+  // =========================================================================
+  // Parameters  (same names and defaults as the behavioural model where they
+  // still apply; timing-only parameters are omitted rather than kept inert)
+  // =========================================================================
+  parameter real vsup      = 1.2   from (0:inf);
+  parameter real vth_frac  = 0.5   from (0:1);
+  parameter integer nbits  = 12    from [4:12];
+  parameter integer msb_align = 0  from [0:1];
+  parameter real voff_lsb  = 0.0;                 // offset (also stands in for noise mean)
+  parameter real gerr      = 0.0;
+  parameter real inl_lsb   = 0.0   from [0:inf);
+  parameter real dnl_lsb   = 0.0   from [0:inf);
+
+  parameter integer dac_nbits = 12 from [4:12];
+  parameter real dac_vfs   = 1.2   from (0:inf);
+  parameter real dac_vmin  = 0.0;
+  parameter integer dac_init = 0   from [0:4095];
+  parameter real rout_dac  = 1k    from (0:inf);
+  parameter real cout_dac  = 1p    from (0:inf);
+
+  parameter real ron_atest  = 500  from (0:inf);
+  parameter real roff_atest = 1G   from (0:inf);
+
+  parameter real vref_min  = 0.9   from [0:inf);
+  parameter real vmon_th   = 0.6   from [0:inf);
+  parameter integer flag3_force = 0 from [0:1];
+
+  // value-based fault injection only (timing modes need the behavioural model)
+  //  0 none   2 stuck code   3 wrong channel   4 over-range
+  parameter integer fi_mode = 0 from {0, 2, 3, 4};
+  parameter integer fi_ch   = -1 from [-1:7];
+  parameter integer fi_code = 0  from [0:4095];
+
+  // =========================================================================
+  // State (all continuous / combinational)
+  // =========================================================================
+  real    vth, nlev, vfs, xn, code_r, vsamp;
+  integer chan, chan_eff, code, code_pend, armed;
+  integer ovr, ref_bad, mon_bad, atest_on, asel, dac_code;
+  real    vdac_t, vatest_src, gsw, startlvl;
+
+  analog function integer dig;
+    input v, t; real v, t;
+    begin dig = (v > t) ? 1 : 0; end
+  endfunction
+
+  // code-dependent DNL, integer modulus (the real-modulus bug the behavioural
+  // model carried is avoided here too)
+  analog function real dnlerr;
+    input c, a; real c, a;
+    integer h;
+    begin
+      h = floor(c);
+      h = (h * 7919) % 4093;
+      if (h < 0) h = h + 4093;
+      dnlerr = a * (2.0 * (h / 4093.0) - 1.0);
+    end
+  endfunction
+
+  analog begin
+    vth  = vth_frac * vsup;
+    nlev = pow(2.0, nbits);
+
+    // ---- channel select (continuous) --------------------------------------
+    chan = dig(V(ch0),vth) + 2*dig(V(ch1),vth) + 4*dig(V(ch2),vth);
+    armed = ((fi_ch < 0) || (fi_ch == chan)) ? 1 : 0;
+    chan_eff = (armed && (fi_mode == 3)) ? (chan ^ 1) : chan;
+
+    case (chan_eff)
+      0: vsamp = V(vin0);
+      1: vsamp = V(vin1);
+      2: vsamp = V(vin2);
+      3: vsamp = V(vin3);
+      4: vsamp = V(vin4);
+      5: vsamp = V(vin5);
+      6: vsamp = V(vin6);
+      7: vsamp = V(vin7);
+      default: vsamp = V(vin0);
+    endcase
+
+    // ---- transfer function ------------------------------------------------
+    vfs = V(vrefp) - V(vrefn);
+    xn  = (vfs > 0.0) ? (vsamp - V(vrefn)) / vfs : 0.0;
+    xn  = xn * (1.0 + gerr);
+    if (inl_lsb > 0.0)
+      xn = xn + (inl_lsb / nlev) * 4.0*xn*(1.0 - xn)*(2.0*xn - 1.0);
+
+    code_r = xn * nlev + voff_lsb;
+    if (dnl_lsb > 0.0) code_r = code_r + dnlerr(floor(code_r), dnl_lsb);
+
+    ovr  = ((code_r < 0.0) || (code_r > (nlev - 1.0))) ? 1 : 0;
+    code = floor(code_r + 0.5);
+    if (code < 0)        code = 0;
+    if (code > nlev - 1) code = nlev - 1;
+
+    if (armed && (fi_mode == 2)) code = fi_code;
+    if (armed && (fi_mode == 4)) begin code = nlev - 1; ovr = 1; end
+
+    code_pend = msb_align ? (code << (12 - nbits)) : code;
+
+    // ---- trim DAC (level-sensitive latch: code follows dac_data while
+    //      dac_we is high; the behavioural model edge-latches it -- see the
+    //      header caveat.  For a strobe held one cycle the captured value is
+    //      the same) ------------------------------------------------------
+    dac_code = (dig(V(dac_data0 ),vth)     ) + (dig(V(dac_data1 ),vth)<< 1) +
+               (dig(V(dac_data2 ),vth)<< 2 ) + (dig(V(dac_data3 ),vth)<< 3) +
+               (dig(V(dac_data4 ),vth)<< 4 ) + (dig(V(dac_data5 ),vth)<< 5) +
+               (dig(V(dac_data6 ),vth)<< 6 ) + (dig(V(dac_data7 ),vth)<< 7) +
+               (dig(V(dac_data8 ),vth)<< 8 ) + (dig(V(dac_data9 ),vth)<< 9) +
+               (dig(V(dac_data10),vth)<<10 ) + (dig(V(dac_data11),vth)<<11);
+    if (dac_nbits < 12) dac_code = dac_code & ((1 << dac_nbits) - 1);
+    vdac_t = (dig(V(dac_we),vth))
+             ? dac_vmin + dac_vfs * dac_code / (pow(2.0, dac_nbits) - 1.0)
+             : dac_vmin + dac_vfs * dac_init / (pow(2.0, dac_nbits) - 1.0);
+
+    // ---- supervisors (continuous comparators) -----------------------------
+    ref_bad  = (vfs < vref_min)      ? 1 : 0;
+    mon_bad  = (V(vmon) < vmon_th)   ? 1 : 0;
+    atest_on = dig(V(atest_en), vth);
+    startlvl = dig(V(start), vth) ? vsup : 0.0;
+
+    // =====================================================================
+    // Continuous contributions
+    // =====================================================================
+    // valid: continuous level (asserted while start is high).  No pulse
+    // shaping, no conversion latency -- see the header.
+    V(valid) <+ startlvl;
+
+    V(data0 ) <+ ((code_pend      ) & 1) ? vsup : 0.0;
+    V(data1 ) <+ ((code_pend >>  1) & 1) ? vsup : 0.0;
+    V(data2 ) <+ ((code_pend >>  2) & 1) ? vsup : 0.0;
+    V(data3 ) <+ ((code_pend >>  3) & 1) ? vsup : 0.0;
+    V(data4 ) <+ ((code_pend >>  4) & 1) ? vsup : 0.0;
+    V(data5 ) <+ ((code_pend >>  5) & 1) ? vsup : 0.0;
+    V(data6 ) <+ ((code_pend >>  6) & 1) ? vsup : 0.0;
+    V(data7 ) <+ ((code_pend >>  7) & 1) ? vsup : 0.0;
+    V(data8 ) <+ ((code_pend >>  8) & 1) ? vsup : 0.0;
+    V(data9 ) <+ ((code_pend >>  9) & 1) ? vsup : 0.0;
+    V(data10) <+ ((code_pend >> 10) & 1) ? vsup : 0.0;
+    V(data11) <+ ((code_pend >> 11) & 1) ? vsup : 0.0;
+
+    V(ana_flag0) <+ ovr         ? vsup : 0.0;
+    V(ana_flag1) <+ ref_bad     ? vsup : 0.0;
+    V(ana_flag2) <+ mon_bad     ? vsup : 0.0;
+    V(ana_flag3) <+ flag3_force ? vsup : 0.0;
+
+    // trim DAC output: Thevenin source behind rout_dac, first-order settling
+    I(dac_out) <+ (V(dac_out) - vdac_t) / rout_dac + ddt(cout_dac * V(dac_out));
+
+    // analog test bus switch
+    asel = (dig(V(atest_sel0),vth)     ) + (dig(V(atest_sel1),vth)<<1) +
+           (dig(V(atest_sel2),vth)<<2  ) + (dig(V(atest_sel3),vth)<<3);
+    case (asel)
+      0: vatest_src = V(vin0);
+      1: vatest_src = V(vin1);
+      2: vatest_src = V(vin2);
+      3: vatest_src = V(vin3);
+      4: vatest_src = V(vin4);
+      5: vatest_src = V(vin5);
+      6: vatest_src = V(vin6);
+      7: vatest_src = V(vin7);
+      8: vatest_src = V(dac_out);
+      9: vatest_src = V(vmon);
+      10: vatest_src = V(vrefp);
+      11: vatest_src = V(vrefn);
+      12: vatest_src = 0.5 * (V(vrefp) + V(vrefn));
+      default: vatest_src = V(vss);
+    endcase
+    gsw = atest_on ? 1.0/ron_atest : 1.0/roff_atest;
+    I(atest) <+ (V(atest) - vatest_src) * gsw;
+
+  end
+endmodule
