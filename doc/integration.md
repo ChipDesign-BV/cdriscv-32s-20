@@ -158,15 +158,32 @@ modulus in the DNL hash, an illegal `inf` bound on an integer
 parameter, and supervisor flags that stayed low when the supply was
 already bad at t = 0 — the one failure a supervisor exists to catch).
 
-Simulator class, measured rather than assumed: the model uses
-event-driven Verilog-AMS (`@(timer)`, `@(cross)`, `transition()`,
-`$rdist_normal`) and needs a full AMS behavioural simulator. OpenVAF
-**crashes** on it (not a clean unsupported-feature error; crash log
-kept), so it is not runnable under this tree's OSDI-based ngspice or
-VACASK flows. The referenced real-number twin (`adc_ams_emu_rnm.sv`)
-was never committed and does not exist; the DNL hash is seedless
-precisely so such a twin can be written to match bit for bit — that
-remains open.
+**Two models, by simulator class.** Use whichever the simulator can run:
+
+| model | simulator | covers | drops |
+|---|---|---|---|
+| [`adc_ams_emu.va`](../verif/models/adc_ams_emu.va) | full Verilog-AMS (event-driven) | conversion latency, the start→wait→valid FSM, all seven fault modes, aperture jitter, input noise | — |
+| [`adc_ams_emu_osdi.va`](../verif/models/adc_ams_emu_osdi.va) | **OpenVAF / OSDI** (ngspice, VACASK) | transfer function (offset/gain/INL/DNL/over-range), trim DAC with output loading, analog test-bus switch, supervisor flags, the three value-based fault modes | conversion *timing* and the timing-based fault modes — those need the event model |
+
+The split is a paradigm limit, measured not assumed (2026-09-06):
+OpenVAF is an OSDI compact-model compiler with no event engine. On the
+behavioural model it rejects `transition()` and cannot parse vector
+electrical ports (`[11:0]`), and **crashes** (log kept in
+`build/openvaf_adc_emu_crash.log`). The OSDI model is therefore a
+genuine reduction, not a translation: every node is a scalar
+(`data0..data11`, `vin0..vin7`, …), every output a continuous
+contribution, and `valid` is a level rather than a timed pulse. It
+compiles clean (`openvaf adc_ams_emu_osdi.va` → 58 KB `.osdi`) and runs
+in the OSDI flows where the behavioural model cannot. Use the OSDI
+model to exercise the transfer function, `LIMITn`, the DAC and the
+atest bus against a SPICE-class analog environment; use the behavioural
+model for anything about `TIMEOUT`, the `tconv` budget, or the retime
+contract.
+
+The real-number twin the behavioural header once referenced
+(`adc_ams_emu_rnm.sv`) was never committed and does not exist; both
+models keep the DNL hash seedless so such a twin can be written to
+match bit for bit — that remains open.
 
 ## 3. Reset
 
