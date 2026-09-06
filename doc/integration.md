@@ -72,7 +72,7 @@ Work top to bottom; each item names the section that explains it.
 | `fault_any_o` | out | 1 | any fault latched in the safety controller |
 | `adc_start_o` | out | 1 | one cycle conversion start |
 | `adc_ch_o` | out | 3 | channel for the conversion being started |
-| `adc_valid_i` | in | 1 | conversion result valid |
+| `adc_valid_i` | in | 1 | conversion result valid — **sampled raw by the AMS interface FSM, no synchroniser**: the external ADC must present valid and data synchronous to `clk_i`, or the integrator adds retiming (§2a) |
 | `adc_data_i` | in | 12 | conversion result |
 | `dac_data_o` | out | 12 | trim / DAC output value |
 | `dac_we_o` | out | 1 | strobe, one cycle after a write to `DAC` |
@@ -132,6 +132,41 @@ clocks and declares them mutually asynchronous; §13 of
 [verification_findings_20.md](verification_findings_20.md) has the
 measurements. If you re-target this design, port that file, not the
 default.
+
+## 2a. The ADC interface contract, and its behavioural emulator
+
+The AMS interface samples `adc_valid_i` and `adc_data_i` **directly** in
+its clk_i-domain FSM — deliberately, since a conversion result is not a
+single asynchronous bit but a 13-wire bundle that must be captured
+coherently. The contract that follows: the external ADC presents valid
+and data synchronous to `clk_i` (retimed in the ADC or by integrator
+logic), data settled before valid rises and held until the next
+conversion, and valid at least one `clk_i` cycle wide. `adc_start_o` is
+exactly one cycle per conversion and appears only for channels enabled
+in `CHMASK`.
+
+A Verilog-A behavioural emulator of the ADC side lives at
+[verif/models/adc_ams_emu.va](../verif/models/adc_ams_emu.va): aperture,
+conversion latency, transfer-function errors (offset/gain/INL/DNL/
+noise), the trim DAC with output loading, the analog test bus as a real
+switch, the supervisor flags, and seven fault-injection modes aimed
+squarely at what CHMASK/PERIOD/LIMITn/TIMEOUT/FLAGCFG and fault bit 10
+(`FLT_AMS`) are supposed to catch — timeout, stuck code, wrong channel,
+over-range, stuck valid, silent start-drop. Reviewed against the RTL
+2026-09-06; three defects corrected at that review (an illegal real
+modulus in the DNL hash, an illegal `inf` bound on an integer
+parameter, and supervisor flags that stayed low when the supply was
+already bad at t = 0 — the one failure a supervisor exists to catch).
+
+Simulator class, measured rather than assumed: the model uses
+event-driven Verilog-AMS (`@(timer)`, `@(cross)`, `transition()`,
+`$rdist_normal`) and needs a full AMS behavioural simulator. OpenVAF
+**crashes** on it (not a clean unsupported-feature error; crash log
+kept), so it is not runnable under this tree's OSDI-based ngspice or
+VACASK flows. The referenced real-number twin (`adc_ams_emu_rnm.sv`)
+was never committed and does not exist; the DNL hash is seedless
+precisely so such a twin can be written to match bit for bit — that
+remains open.
 
 ## 3. Reset
 
