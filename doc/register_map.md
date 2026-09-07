@@ -74,7 +74,7 @@ available in the execute stage.
 | `0x1c` | `PIN_DIV` | RW | half period of the healthy pin toggle |
 | `0x20` | `RAW` | RO | fault inputs before the sticky stage |
 | `0x24` | `SELFTEST` | WO | [0] lockstep mismatch [1] single bit ECC error [2] double bit ECC error [3] ECC target: 0 = D-TCM, 1 = I-TCM |
-| `0x28` | `CFG_SRC` | RO | which register group raised the configuration parity fault (STATUS bit 13): [0] safety controller [1] watchdog [2] clock monitor [3] interrupt controller [4] timer [5] AMS [6] core `mtvec`. Sticky; cleared by the W1C of STATUS bit 13 |
+| `0x28` | `CFG_SRC` | RO | which register group raised the configuration parity fault (STATUS bit 13): [0] safety controller [1] watchdog [2] clock monitor [3] interrupt controller [4] timer [5] AMS [6] core `mtvec` **and the PMP arrays** (one export per core — the two guards share the group) [7] CLINT. Sticky; cleared by the W1C of STATUS bit 13 |
 | `0x2c` | `STATUS2` | RO | boot telemetry: [0] `boot_fault` (readable only after a warm restart — a cold boot that faulted never releases the core; the **ungated error pin** is the live signal for that case), [1] `boot_done`, [5:2] retry count of the load that produced this session — nonzero after a successful boot means a flash that is failing in the field, caught before it kills the unit |
 
 **STATUS bit 13 (configuration parity) is special: it latches and
@@ -117,12 +117,16 @@ Fault bit assignment (`STATUS`, `ENABLE`, `REACT_*`, `RAW`):
 | 15 | fault injection self test |
 | 16..31 | `fault_ext_i[15:0]` from the SoC |
 
-**No bit for the QSPI boot fault — deliberately open.** All sixteen
-internal indices are allocated (bit 14 took the former spare, bit 15 is
-the self test) and bits 16..31 belong to the SoC, so appending
-`FLT_BOOT` without moving existing bits is impossible.  Until an index
-is agreed, `boot_fault` is observable as JTAG `STATUS[6]` (§10) and the
-core is held by construction — see `doc/variant_status.md` §3 item 10.
+**No bit for the QSPI boot fault — decided, not pending** (2026-09-05).
+All sixteen internal indices are allocated (bit 14 took the former
+spare, bit 15 is the self test) and bits 16..31 belong to the SoC, so
+appending `FLT_BOOT` without moving existing bits is impossible — and
+a failed boot leaves no software running to configure a reaction
+anyway.  The boot fault therefore takes a different road: it drives
+**`err_pin_o` ungated** (like configuration parity), it is readable as
+JTAG `STATUS[6]` (§10) with the core held by construction, and
+successful-boot telemetry lands in `STATUS2` at `0x2c` above — see
+`doc/variant_status.md` §3 item 10.
 
 ## 4. Watchdog (slot 1)
 

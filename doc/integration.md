@@ -16,8 +16,9 @@ than repeated: [architecture.md](architecture.md) for how it works,
 [safety_manual.md](safety_manual.md) for the safety argument and
 assumptions of use, [fmeda.md](fmeda.md) for the metrics.
 
-**Status.** Verified to the O1–O9 objectives of
-[verification_plan.md](verification_plan.md); may be used in a project.
+**Status.** Verified to the O1–O7 and O9 objectives of
+[verification_plan.md](verification_plan.md) (O8, gate level, is open);
+may be used in a project.
 **Not qualified for safety-critical use** — that needs foundry failure
 rates, common-cause analysis and an assessed safety case, per the
 FMEDA's handoff checklist. No compliance with any functional safety
@@ -34,7 +35,7 @@ standard is claimed.
 | Timing constraints | `verif/sta/cdriscv_32s_20_subsys.sdc` | three-corner, see §8 |
 | Verification suite | `verif/`, `Makefile` | 40+ targets; `make lint sim block cosim riscof formal coverage fi gate` |
 | Boot example | `tb/sw/start.S` | register zeroing, BIST, safety configuration |
-| Evidence | `doc/verification_findings.md` | V0–V52, every number's provenance |
+| Evidence | `doc/verification_findings_20.md` (this variant, §1–§19) and `doc/verification_findings.md` (variant 1, V0–V52) | every number's provenance |
 
 ### 0.2 Integration checklist
 
@@ -88,6 +89,9 @@ Work top to bottom; each item names the section that explains it.
 | `tdo_oe_o` | out | 1 | TDO pad output enable — TDO is only driven in the shift states, so several TAPs can share a chain |
 | `core_sleep_o` | out | 1 | core is in WFI |
 | `retire_valid_o`, `retire_pc_o`, `retire_instr_o` | out | 1, 32, 32 | retire trace, for debug and for an external monitor |
+| `qspi_sclk_o` | out | 1 | QSPI boot flash clock (`BootEnable=1`; with `BootEnable=0` the loader is absent and these pins are inert) |
+| `qspi_cs_no` | out | 1 | QSPI chip select, active low |
+| `qspi_io_i` / `qspi_io_o` / `qspi_io_oe_o` | in/out/out | 4 each | QSPI data — the three buses map onto four bidirectional pads at chip level (`io_o` drives the pad while the matching `io_oe` bit is set) |
 
 ## 2. Clocking
 
@@ -226,7 +230,11 @@ what makes the check bits testable.
    follows it. An unwritten word is an arbitrary code word, and the ECC
    check on it will most likely report an uncorrectable error. If the
    BIST is skipped, the loader must write every TCM word instead.
-2. Load or verify the application image in the I-TCM.
+2. Load or verify the application image in the I-TCM. On silicon
+   (`BootEnable=1`) the hardware QSPI loader has already done this
+   before the core is released — see
+   [programming_manual.md](programming_manual.md) §3a; this step then
+   reduces to reading the `STATUS2` boot telemetry.
 3. Zero all architectural registers before enabling the lockstep
    comparison (the example in `tb/sw/start.S` does this) so that the two
    cores start from the same state.
@@ -301,7 +309,9 @@ commercial elaborator. In LibreLane set `USE_SLANG: true`; the flow in
 | `ItcmWords`, `DtcmWords` | 4096 | 39-bit words including ECC |
 | `RfParity` | 1 | register file parity |
 | `MbistAuto` | 0 | run BIST automatically out of reset |
-| `WarmRstLen` | — | warm reset duration in cycles |
+| `WarmRstLen` | 16 | warm reset duration in cycles |
+| `BootEnable` | 1 | instantiate the QSPI boot loader; 0 removes it entirely (TCMs preloaded externally) |
+| `BootSclkDiv`, `BootRetryMax`, `BootTimeoutCycles`, `BootQuadDummy` | 2, 3, 1024, 4 | loader tuning — see [architecture.md](architecture.md) §4a and [programming_manual.md](programming_manual.md) §3a |
 
 Set them at instantiation. Note that a gate-level netlist is one
 *configuration* — parameters are resolved by synthesis — so a bench
@@ -323,7 +333,7 @@ the March C- memory BIST.
 
 > **This variant's own physical results supersede the figures below
 > where they differ**: subsystem harden `v2full` and the timing-closed
-> full-chip harden `chip1` are summarised in
+> full-chip harden (final: `chip2b`) are summarised in
 > [variant_status.md](variant_status.md) §3.8 and [chip.md](chip.md).
 > The flow walkthrough, macro/PDN mechanics and integration advice in
 > this section carry over unchanged; the measured numbers are variant
@@ -619,8 +629,11 @@ configuration in ways directed tests are not.
 | `rtl/core/` | core |
 | `rtl/safety/` | lockstep, ECC, safety controller, watchdog, clock monitor, BIST |
 | `rtl/bus/` | interconnect, TCM, APB bridge |
-| `rtl/periph/` | timer, interrupt controller, AMS interface |
+| `rtl/periph/` | timer, interrupt controller, CLINT, AMS interface |
+| `rtl/debug/` | JTAG TAP, clock-domain bridge, read-only observation window |
+| `rtl/boot/` | QSPI boot loader |
 | `rtl/common/` | synchronisers, configuration parity, 64-bit counters |
 | `flow/` | LibreLane 3 hardening flow and its wrapper |
 | `scripts/gen_secded.py` | generates the ECC RTL |
 | `scripts/mkimage.py` | builds a 39-bit memory image from a binary |
+| `scripts/mkbootimg.py` | packs a CRC32-checked QSPI boot image from flat binaries |

@@ -12,9 +12,12 @@
   `riscv-software-src/riscof` is archived and read-only.** That also means
   the defect is permanent; the workaround below is the fix.
 
-Four problems found (one turned out to be already fixed upstream and one already reported — see each item) while bringing `make riscof` up on this core (RV32IM
-Zicsr Zifencei, machine mode only, no PMP, no U mode). All are in the
-tools, not in the design. Each is reduced to the smallest reproduction that
+Four problems found (one turned out to be already fixed upstream and one already reported — see each item) while bringing `make riscof` up on this core, which at
+that date (2026-08-22) declared RV32IM Zicsr Zifencei, machine mode
+only, no PMP, no U mode. (The core has since grown B, C/Zcmp and PMP
+on data and fetch — the per-item core descriptions below are kept as
+of the filing date; item 3's 43 pmp tests remain dropped by selection
+and unrevisited.) All are in the tools, not in the design. Each is reduced to the smallest reproduction that
 still shows it. Verified 2026-08-22 against `riscv/riscv-arch-test`
 `old-framework-3.x` at `281d71ef`, `act4` at HEAD, and RISCOF 1.25.3.
 

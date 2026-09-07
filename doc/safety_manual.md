@@ -21,22 +21,22 @@
 >
 > What keeps the disclaimer in force: the base failure rates are
 > **assumed**, because no foundry FIT data exists for this design; O8
-> (gate-level) is open — the `chip1` netlist now exists and the work
-> has not been done on it, and the FMEDA's populations partly rest on
-> RTL elaboration until they are refreshed from it; there is no mission
+> (gate-level) is open — the final `chip2b` netlist now exists and the
+> work has not been done on it, and the FMEDA's populations partly rest
+> on RTL elaboration until they are refreshed from it; there is no mission
 > profile, no common-cause analysis for the lockstep pair, and no
 > safety-case owner. **No claim of compliance with ISO 26262, IEC 61508
 > or any other functional safety standard is made, and none may be
 > derived from this document.**
 >
-> **On the name.** The `s` in `cdriscv-32s-10` states what the part is
+> **On the name.** The `s` in `cdriscv-32s-20` states what the part is
 > designed *for*, not what it has been certified *as*. This document
 > records design intent and measured evidence so that a real safety case
 > can later be built — or shown to be unachievable.
 
 ## 1. Intended use
 
-`cdriscv-32s-10` is intended as the digital control element of a
+`cdriscv-32s-20` is intended as the digital control element of a
 mixed-signal SoC where a failure of the control loop has to be detected
 and signalled to a system-level safety mechanism within a short fault
 tolerant time interval. It is a *safety element out of context*: the
@@ -65,6 +65,9 @@ could take over.
 | SM8 | ADC result range check, conversion time-out, analog flag inputs | failure of the analog domain | fault bit 10 |
 | SM9 | Trap reporting to the safety controller | unexpected illegal instruction | fault bit 12 |
 | SM10 | Fault injection (`SELFTEST`, TCM injection, comparator injection) | latent faults in SM1 and SM2 themselves | proves the detection path |
+| SM11 | Configuration register parity, one bit per register group — including the PMP arrays and the CLINT since 2026-09-02 | an upset silently disarming or re-tuning any mechanism above | fault bit 13, **ungated** (see §5); `CFG_SRC` names the group |
+| SM12 | End-to-end protection on both TCM bus links (`{data, addr, be}` Hsiao fold) | interconnect corruption and wrong-address delivery between core and TCM | fault bit 14 |
+| SM13 | QSPI boot verification: header checks before any write, CRC32 over the payload, bounded retries, sticky `boot_fault` | a corrupt, truncated or absent boot image starting the core | core never released; `err_pin_o` driven **ungated**; telemetry in `STATUS2` |
 
 ## 3. Assumptions of use
 

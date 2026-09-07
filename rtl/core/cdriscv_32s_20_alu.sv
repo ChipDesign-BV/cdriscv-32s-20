@@ -14,8 +14,9 @@
 // synthesised depth is predictable.
 //
 // STATUS: block-verified (doc/variant_status.md, section 2) and
-// instantiated by the subsystem.  No signoff gate is met in this
-// repository -- see README.md.  NOT qualified for safety-critical use.
+// instantiated by the subsystem.  This repository's own O1-O7 and O9
+// gates are met on this RTL; O8 (gate level) is open -- see README.md.
+// NOT qualified for safety-critical use.
 
 `default_nettype none
 

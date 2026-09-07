@@ -17,8 +17,8 @@
 > fault-injection campaigns, and an FMEDA (SPFM 99.50 % / LFM 92.66 %
 > on assumed rates, [fmeda.md](fmeda.md)). The physical implementation
 > is timing-closed at chip level ([chip.md](chip.md)). **O8 —
-> gate-level simulation — is not re-run** and awaits work on the
-> `chip1` netlist. Read every "**met**" in the table below as *met by
+> gate-level simulation — is not re-run** and awaits work on the final
+> `chip2b` netlist. Read every "**met**" in the table below as *met by
 > variant 1*.
 
 > **Variant 1 status, 2026-08-25: every objective O1–O9 is met** — see the

@@ -25,9 +25,10 @@
 // peripherals and their status registers standing, so the software can
 // find out afterwards why it restarted.
 //
-// STATUS: block-verified (doc/variant_status.md, section 2) and
-// instantiated by the subsystem.  No signoff gate is met in this
-// repository -- see README.md.  NOT qualified for safety-critical use.
+// STATUS: subsystem top -- every module below is block-verified and/or
+// equivalence-checked (doc/variant_status.md, section 2).  This repository's own O1-O7 and O9
+// gates are met on this RTL; O8 (gate level) is open -- see README.md.
+// NOT qualified for safety-critical use.
 
 `default_nettype none
 

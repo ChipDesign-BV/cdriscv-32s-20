@@ -7,22 +7,23 @@ generated/checked by `scripts/gen_padring.py`, which asserts the subsystem port
 list from the RTL and the pad geometry from the PDK LEF before emitting
 anything.
 
-**Status: hardened to GDS and timing-closed** (`flow/runs/chip1`,
-2026-09-03/04) — see the results section below for the gate table, the two
-deliberately deferred items (seal ring, density fill) and the two checks
-still open (KLayout DRC re-run, magic overlap classification).
+**Status: hardened to GDS and timing-closed on the complete RTL**
+(`flow/runs/chip2b`, 2026-09-06/07) — see the gate table below, the two
+deliberately deferred items (seal ring, density fill) and the one item
+still open (the magic overlap disposition).
 
 <img src="img/cdriscv_chip_gds.png" width="50%"
      alt="cdriscv_32s_20_chip GDS, 2400 x 3500 um on IHP SG13G2">
 
-*`cdriscv_32s_20_chip` as streamed out by run `chip1` — 2400 × 3500 µm on
-IHP SG13G2. The orange perimeter is the 99-pad `sg13g2_io` ring, the yellow
-blocks are the six TCM SRAM macros (I-TCM south, D-TCM north), the purple
-field is the subsystem logic. The gap between ring and die edge is the
-140 µm `PAD_EDGE_SPACING` reserved for the deferred seal ring.*
+*`cdriscv_32s_20_chip` as streamed out by the final run `chip2b` —
+2400 × 3500 µm on IHP SG13G2. The orange perimeter is the 105-pad
+`sg13g2_io` ring, the yellow blocks are the six TCM SRAM macros (I-TCM
+south, D-TCM north), the purple field is the subsystem logic. The gap
+between ring and die edge is the 140 µm `PAD_EDGE_SPACING` reserved for
+the deferred seal ring.*
 
 
-## Hardening result (chip2 — final, with the QSPI boot loader)
+## Hardening result (chip2b — final, with the QSPI boot loader)
 
 `chip2b` is the final hardening: the complete RTL including the QSPI
 boot loader, 105 pads (99 signal+supply + the 6 QSPI pins), on the same
@@ -98,11 +99,11 @@ plus the `p2c` input path), one chip `inout qspi_io[3:0]`: per bit
 the boot loader drives the enables per SPI phase, and in quad data
 phases all four lines are flash-driven.
 
-> **The `chip1` results below predate the QSPI pads.** That run
-> hardened the 99-pad revision without the boot loader; the pinout
-> above (105 pads) and `flow/config_chip.json` are the current
-> generator output, and the chip must be re-hardened before the gate
-> table below describes this netlist.
+> **The `chip1` results below predate the QSPI pads and are kept as
+> history.** That run hardened the 99-pad revision without the boot
+> loader; the pinout above (105 pads) and `flow/config_chip.json` are
+> the current generator output, and the re-harden they called for is
+> done — `chip2b` above is that run and supersedes this section.
 
 ## Power pads
 
@@ -130,7 +131,7 @@ IR-drop-driven addition of further pairs is a post-layout decision.
   `config_chip.json` (placing it would abort the pad step). Assembly-level
   decision, later.
 
-## Hardening result (run `chip1`, 2026-09-03/04)
+## Hardening result (run `chip1`, 2026-09-03/04 — superseded by `chip2b`)
 
 Two bounded probes preceded the harden: `chipfp1` (synthesis → floorplan →
 `OpenROAD.PadRing`) proved the ring places, and `chipfp2` (through tap/endcap
@@ -179,23 +180,25 @@ margins took the fetch critical path from −0.719 ns to −0.059 ns — and
   subsystem flow never ran metal fill either, so this is not a capability
   the smaller runs had and this one lost.
 
-### Still open — evidence, not verdicts
+### What chip1 left open, and where it stands now
 
-* **KLayout signoff DRC** is re-running on the corrected (no-sealring)
-  GDS. The first pass consumed the flow's last completed state — the
-  sealring-corrupted GDS from step 65 (`68-klayout-drc/state_in.json`
-  names it) — and its **60 errors trace entirely to that corrupt
-  geometry**: 5 `Seal.n` plus off-grid/angle/via artifacts at the
-  staircase coordinates. That pass is an invalid check, not a verdict;
-  findings [§19](verification_findings_20.md) carries the stale-state
-  lesson.
-* **956 magic "illegal overlap" messages**, all of the form
-  `obsm* vs metal* types do not connect` (950 on metal7, 6 on metal3):
-  the IO cells' LEF **obstruction** layers against routed metal — an
-  abstraction artifact, not drawn shorts, and LVS matched uniquely
-  through the same magic extraction. Classification is pending a
-  decision: exclude the IO cells from the check the way the SRAMs are,
-  or waive with analysis.
+* **KLayout signoff DRC** — resolved by `chip2b`. chip1's first pass
+  consumed the flow's last completed state — the sealring-corrupted GDS
+  from step 65 (`68-klayout-drc/state_in.json` names it) — and its
+  **60 errors trace entirely to that corrupt geometry**: 5 `Seal.n`
+  plus off-grid/angle/via artifacts at the staircase coordinates. That
+  pass was an invalid check, not a verdict (findings
+  [§19](verification_findings_20.md) carries the stale-state lesson);
+  `chip2b`'s DRC ran on its own freshly streamed GDS and reports **0
+  errors**.
+* **magic "illegal overlap" messages** — still open, carried to
+  `chip2b` (956 here, 1026 there — the QSPI pads add their share). All
+  of the form `obsm* vs metal* types do not connect`: the IO cells'
+  LEF **obstruction** layers against routed metal — an abstraction
+  artifact, not drawn shorts, and LVS matched uniquely through the same
+  magic extraction. Classification is pending a decision: exclude the
+  IO cells from the check the way the SRAMs are, or waive with
+  analysis.
 
 ## Pinout table
 

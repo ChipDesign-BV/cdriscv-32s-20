@@ -24,6 +24,7 @@ The test suite is 1.7 GB and is not vendored:
 ```sh
 pip install "cython<3" && pip install --no-build-isolation riscof
 cd verif/riscof && riscof arch-test --clone
+git -C riscv-arch-test checkout old-framework-3.x   # main no longer has the suite
 ```
 
 The plugins expect a `riscv32-unknown-elf-*` toolchain prefix and this
@@ -60,38 +61,28 @@ nothing about the addresses is assumed.
 is no console, so the IO macros are empty and the signature is the only
 output.
 
-## Status: 85 of 85 pass, on the current suite
+## Two selection interventions, still in force
 
-`make riscof` runs against the **current `riscv-arch-test`, unmodified**:
-39 from I, 8 from M, 22 hints, 15 privilege, 1 Zifencei. **85 passed, 0
-failed.**
+Both live in `cdriscv/riscof_cdriscv.py` / `spike/riscof_spike.py` and
+are written up with reproductions in
+[upstream-issues.md](upstream-issues.md):
 
-Two things make that work, both in `cdriscv/riscof_cdriscv.py` and
-`spike/riscof_spike.py`:
-
-* **`-mno-relax`.** The suite's `LA` macro brackets its alignment in
-  `.option rvc`, so the assembler pads with `c.nop` even on a target with no
-  C extension, and linker relaxation keeps that padding in the executed
-  stream. An RV32I core must trap on a 16-bit encoding, and Spike traps at
-  the same address. Turning relaxation off resolves the padding away. This
-  replaces the earlier workaround of pinning the suite to release 3.5.3.
-* **The `pmp` group is dropped from the generated test list.** All 43 gate
-  PMP on `verify (PMP['implemented'])`, and RISCOF selects on `check` clauses
-  only, so they are selected on any RV32 I+Zicsr core. This core implements
-  no PMP and has no U mode. `make riscof` prints how many it dropped.
-
-Both, and two more, are written up in [upstream-issues.md](upstream-issues.md).
-
-### Setup
-
-```sh
-pip install "cython<3" && pip install --no-build-isolation riscof
-cd verif/riscof && riscof arch-test --clone
-git -C riscv-arch-test checkout old-framework-3.x   # main no longer has the suite
-for t in gcc objcopy nm objdump ld as; do
-  ln -sf "$(command -v riscv64-unknown-elf-$t)" ~/.local/bin/riscv32-unknown-elf-$t
-done
-```
+* **`-mno-relax`.** On `old-framework-3.x` the suite's `LA` macro
+  brackets its alignment in `.option rvc`, so the assembler pads with
+  `c.nop` and linker relaxation keeps the padding in the executed
+  stream. On the pre-C core that made the suite unrunnable — an RV32I
+  core must trap on a 16-bit encoding — and turning relaxation off
+  resolved it (replacing the earlier workaround of pinning release
+  3.5.3). The flag stays so the DUT and reference builds match byte
+  for byte.
+* **The `pmp` group is dropped from the generated test list.** All 43
+  gate PMP on `verify (PMP['implemented'])`, which RISCOF never
+  evaluates — it selects on `check` clauses only — so they select on
+  any RV32 I+Zicsr core regardless of what it implements. The drop
+  dates from when this core had no PMP; the core **now implements PMP
+  on data and fetch**, and re-admitting the 43 tests has not been
+  revisited. They are dropped by selection, not by result — an open
+  caveat, not evidence. `make riscof` prints how many it dropped.
 
 ### One trap to be careful of
 
@@ -108,6 +99,10 @@ else passes. See finding V35.
 
 The suite was first unrunnable (the `LA` macro's `c.nop` padding traps
 any non-C core — `-mno-relax` resolves it), then pinned to release
-3.5.3, then unpinned. The whole trail, including the three misaligned-
+3.5.3, then unpinned. The selection grew with the ISA yaml: 85 tests
+on the inherited RV32IM_Zicsr_Zifencei declaration (39 I, 8 M, 22
+hints, 15 privilege, 1 Zifencei — all passing), 114 with B declared,
+143 with C declared (which also correctly deselected the 8
+`misalign-*` tests). The whole trail, including the three misaligned-
 load failures that turned out to be this repository's own environment
 defect, is findings V34–V36 and [upstream-issues.md](upstream-issues.md).

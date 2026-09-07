@@ -9,8 +9,10 @@
 // chains inside this file).
 //
 // STATUS: inherited unchanged from cdriscv-32s-10, where it met that
-// repository's O1-O7 gate.  That gate does NOT carry over -- see
-// README.md.  NOT qualified for safety-critical use.
+// repository's O1-O7 gate.  Inheritance is not evidence: this
+// repository re-established its own gates -- O1-O7 and O9 are met on
+// this RTL, O8 (gate level) is open -- see README.md.  NOT qualified
+// for safety-critical use.
 
 `default_nettype none
 

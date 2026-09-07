@@ -21,8 +21,9 @@ safety argument. Where this manual gives a register offset it is for
 orientation — the authoritative bit definitions are in the register
 map.
 
-**Status.** Verified to objectives O1–O9 of
-[verification_plan.md](verification_plan.md); may be used in a project.
+**Status.** Verified to objectives O1–O7 and O9 of
+[verification_plan.md](verification_plan.md) (O8, gate level, is open);
+may be used in a project.
 **Not qualified for safety-critical use.** No compliance with any
 functional safety standard is claimed.
 
@@ -114,11 +115,12 @@ Memory image: `scripts/mkimage.py` turns a binary into the 39-bit
 ECC-encoded words the TCMs expect. Loading a raw binary directly into
 the arrays produces uncorrectable ECC errors on the first fetch.
 
-### 1.2 Memory map
+### 1.3 Memory map
 
 | Range | Contents |
 |-------|----------|
 | `0x0000_0000` | I-TCM — instruction fetch **and** data reads |
+| `0x0200_0000` | CLINT, 64 KiB window, word accesses only (§5.2a) |
 | `0x1000_0000` | D-TCM |
 | `0x2000_0000` | peripherals, sixteen 256-byte slots (§5) |
 | anything else | bus error → load/store access fault |
@@ -199,7 +201,7 @@ binaries and is the reference implementation:
 | `0x18` | `CRC32` | IEEE 802.3 CRC-32 (`binascii.crc32`) over the payload bytes of both segments in read order (seg0 then seg1); the header itself is covered by its own checks, not the CRC |
 | `0x1c` | payload | seg0 bytes immediately followed by seg1 bytes |
 
-Each segment must lie **entirely** inside one TCM window (§1.2); the
+Each segment must lie **entirely** inside one TCM window (§1.3); the
 loader checks that from the header, before any bus write, so a wild
 segment writes nothing.  The header is always read with the 1-bit 03h
 command; the payload uses 03h, or EBh (quad, with mode byte `00` and 4
@@ -213,11 +215,15 @@ out of bounds, CRC mismatch, a bus error response, or the per-byte
 progress timeout (`BootTimeoutCycles`) — abandons the attempt and
 retries the whole load from scratch, up to `BootRetryMax` (default 3)
 retries.  Exhausted, the loader latches a **sticky `boot_fault` and the
-core never starts**; the only observers are the JTAG STATUS word
-(§ register map 10: bit 5 `boot_done`, bit 6 `boot_fault`) and the
-absence of activity.  There is no safety-controller status bit for the
-boot fault yet — every internal index is taken; see the register map's
-fault-bit note.  A warm reset (watchdog / safety reaction) does **not**
+core never starts**.  The fault has no `FLT` bit in the safety
+controller's packed status — a deliberate decision (2026-09-05), since
+every internal index is allocated and, more to the point, a failed
+boot leaves no software running to configure or clear anything.
+Instead `boot_fault` drives **`err_pin_o` ungated** — the pin is the
+chip's only voice at that moment — and is visible in the JTAG STATUS
+word (register map §10: bit 5 `boot_done`, bit 6 `boot_fault`) and,
+after a warm restart, in `STATUS2` (§3a.1).  A warm reset (watchdog /
+safety reaction) does **not**
 reload the flash: the loader state survives on the cold-reset domain
 and the core restarts from the already-verified image, exactly as the
 preloaded benches restart today.

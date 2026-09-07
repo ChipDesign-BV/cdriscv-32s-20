@@ -40,9 +40,9 @@
 // arbitrary but deterministic values that the core never consumes.
 //
 // STATUS: block-verified against Spike/binutils (block-zcmp,
-// block-decompress) and instantiated by the core.  No signoff gate is
-// met in this repository -- see README.md.  NOT qualified for
-// safety-critical use.
+// block-decompress) and instantiated by the core.  This repository's own O1-O7 and O9
+// gates are met on this RTL; O8 (gate level) is open -- see README.md.
+// NOT qualified for safety-critical use.
 
 `default_nettype none
 

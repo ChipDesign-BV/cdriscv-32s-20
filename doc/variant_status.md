@@ -458,10 +458,11 @@ record.
 8. **The re-harden with the complete RTL is done — and timing has
    since closed at chip level.** The subsystem run `v2full` below missed
    setup at the slow corner; candidate 1 of its own list was then
-   measured (`probe2`) and carried into the full-chip harden (`chip1`),
-   which closes. The `v2full` analysis is kept as written, because the
-   resolution paragraph at the end is only honest next to the
-   prediction it tested.
+   measured (`probe2`) and carried into the full-chip hardens (`chip1`,
+   then the final `chip2b` with the QSPI loader in), which close. The
+   `v2full` analysis is kept as written, because the resolution
+   paragraph at the end is only honest next to the prediction it
+   tested.
 
    `v2full` — Zca/Zcb in the fetch path, the single-cycle multiplier, the
    JTAG TAP with its bridge and window, and all three clocks constrained
@@ -549,20 +550,29 @@ record.
    devices / 86 330 nets including the pad ring**. Candidate 2 (the RTL
    restructure) was never needed and remains future margin.
 
+   **The final harden `chip2b` (2026-09-06/07) repeats the closure with
+   the complete RTL** — the QSPI loader and its six pads in (105 pads
+   total): setup **+0.040 ns** slow / TNS 0, hold +0.625 ns slow
+   (+0.111 ns worst, fast), route DRC 0, XOR 0, antenna 0, **KLayout
+   signoff DRC 0**, LVS **matching uniquely across 172 684 devices /
+   91 066 nets**, 335 518 instances. It supersedes `chip1`; the gate
+   table is in [chip.md](chip.md).
+
    Deferred deliberately, with the evidence in [chip.md](chip.md) and
    §19 of [verification_findings_20.md](verification_findings_20.md):
    the **seal ring** (the PDK PCell emits INT32_MIN coordinates for
    every size, including the PDK's own example; the die keeps the
    140 µm allowance so the fixed ring adds without a floorplan change)
    and **density fill** (the PDK filler OOMs >13 GB on the 8.4 mm²
-   die; the subsystem flow never ran metal fill either). Still OPEN,
-   as evidence rather than verdicts: the **KLayout chip DRC re-run**
-   on the corrected no-sealring GDS (the first pass judged the stale
-   sealring GDS — its 60 errors are that corrupt geometry, an invalid
-   check), and the classification of **956 magic illegal overlaps**
-   (all `obsm*` LEF-obstruction vs routed-metal artifacts; exclude the
-   IO cells like the SRAMs, or waive with analysis — a decision, not
-   yet made).
+   die; the subsystem flow never ran metal fill either). The KLayout
+   chip DRC re-run that was open here is **resolved**: `chip1`'s first
+   pass judged the stale sealring GDS (its 60 errors are that corrupt
+   geometry, an invalid check), and `chip2b`'s DRC on its own GDS
+   reports **0 errors**. Still OPEN: the classification of the **1026
+   magic illegal overlaps** on `chip2b` (1017 `obsm7`/metal7, 9
+   `obsm3`/metal3 — all LEF-obstruction vs routed-metal artifacts,
+   LVS-clean through the same extraction; exclude the IO cells like
+   the SRAMs, or waive with analysis — a decision, not yet made).
 
 9. **Coverage (O6/O7), fault injection and the FMEDA are all this
    variant's now.** On the final RTL (2026-09-02, post the three
@@ -577,9 +587,9 @@ record.
    FMEDA ([fmeda.md](fmeda.md), 2026-09-02): **SPFM 99.50 %, LFM
    92.66 %, residual 1.22 FIT** — both past the ASIL D thresholds *on
    assumed base rates*, populations from the v2full netlist plus RTL
-   elaboration for the blocks that post-date it. The `chip1` netlist
-   now exists (item 8); refreshing the FMEDA populations from it is an
-   open to-do, alongside O8 below.
+   elaboration for the blocks that post-date it. The final `chip2b`
+   netlist now exists (item 8); refreshing the FMEDA populations from
+   it is an open to-do, alongside O8 below.
 
    The coverage machinery that made the numbers honest (2026-09-01
    pass): line was 95.8 % measured (568 of 593) with **25 reviewed
@@ -632,8 +642,8 @@ record.
    waiting has since happened: the O2 marathon completed on `2ecf4b2`
    the same day and [fmeda.md](fmeda.md) was computed after it. Still
    open: `gate-fsm-core` vs the 3-bit ST_SEQ machine, **O8** —
-   gate-level simulation, now waiting on the `chip1` netlist rather
-   than on a harden that had not run — and the FMEDA population
+   gate-level simulation, now waiting on the final `chip2b` netlist
+   rather than on a harden that had not run — and the FMEDA population
    refresh from that same netlist.)*
 
 10. **The chip can now load firmware — there was no way to fill the
@@ -661,7 +671,9 @@ record.
     green, both simulators for the benches that run both).  The chip
     top gained six pads (105 total, QSPI grouped at the south-east
     corner, four `sg13g2_IOPadInOut4mA` bidirectionals); the `chip1`
-    harden predates them and the chip must be re-hardened.
+    harden predated them, and the re-harden is done — `chip2b`
+    (item 8, [chip.md](chip.md)) closes with the loader and its pads
+    in.
 
     Verification: `block-qspi` (41 checks across ten scenarios: both
     segment shapes, quad vs 1-bit with the used opcode checked against

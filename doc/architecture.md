@@ -15,7 +15,7 @@
 
 ## 1. Overview
 
-`cdriscv-32s-10` is a 32-bit RISC-V core subsystem intended for the
+`cdriscv-32s-20` is a 32-bit RISC-V core subsystem intended for the
 digital control part of a safety-critical mixed-signal SoC: a sensor
 front-end, a motor or power controller, a battery monitor. It is small
 and deterministic rather than fast, and every structure in it was chosen
@@ -53,8 +53,9 @@ group.
 
 ## 2. Core
 
-`cdriscv_32s_20_core` implements `rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb`,
-machine mode only. It has two stages:
+`cdriscv_32s_20_core` implements
+`rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp`, machine mode only. It
+has two stages:
 
 * **Fetch** (`cdriscv_32s_20_if_stage` → `cdriscv_32s_20_if_align`) —
   sequential prefetch with one outstanding bus transaction and a one
@@ -65,14 +66,14 @@ machine mode only. It has two stages:
   `cdriscv_32s_20_decompress` expands a 16-bit encoding before decode.
 * **Execute** — decode, register read, ALU or multiply/divide or memory
   access, and write back, all for one instruction at a time, sequenced
-  by a four state FSM (`ST_RUN`, `ST_WAIT_LSU`, `ST_WAIT_MD`,
-  `ST_SLEEP`).
+  by a five state FSM (`ST_RUN`, `ST_WAIT_LSU`, `ST_WAIT_MD`,
+  `ST_SLEEP`, and `ST_SEQ` for the Zcmp sequences below).
 
 Because exactly one instruction is in flight in the execute stage there
 is no forwarding, no hazard detection and no speculative state. The
 cost is throughput (a simple ALU instruction retires in one cycle when
-the fetch keeps up, a load or store takes the memory latency, a multiply
-or divide takes 33 cycles). The benefit is that the state space a
+the fetch keeps up, a load or store takes the memory latency, a divide
+takes 33 cycles — a multiply is single-cycle). The benefit is that the state space a
 safety analysis has to cover stays small and every instruction has a
 statically known worst case latency.
 

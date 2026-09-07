@@ -33,6 +33,12 @@
 //
 // Handshake: assert req_i for one cycle while busy_o is low.  valid_o
 // pulses for one cycle when result_o is valid.
+//
+// STATUS: block-verified (block-multdiv, divide vectors only -- the
+// multiplies belong to block-mult with the logic that serves them) and
+// instantiated by the subsystem.  This repository's own O1-O7 and O9
+// gates are met on this RTL; O8 (gate level) is open -- see README.md.
+// NOT qualified for safety-critical use.
 
 `default_nettype none
 

@@ -7,7 +7,8 @@ This is **variant 2** of [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdris
 It starts from that design and adds a wider ISA (bit manipulation and
 compressed instructions, including Zcmp), physical memory protection on
 data **and** fetch, a standard CLINT, a JTAG TAP with a read-only debug
-window, and end-to-end protection on both TCM bus links — all
+window, end-to-end protection on both TCM bus links, and a QSPI-master
+boot loader that fills the TCMs from external NOR flash — all
 integrated in the subsystem ([doc/variant_status.md](doc/variant_status.md)
 has the per-module evidence). It also carries a **full-chip top**
 (`rtl/chip/`) in an IHP SG13G2 pad ring, hardened and timing-closed —
@@ -26,9 +27,10 @@ describe different things.
 (c) 2026 ChipDesign B.V. — [Apache-2.0](LICENSE)
 
 > [!WARNING]
-> **Work in progress — but no longer unverified. Every result below was
-> produced in this repository, on this variant's RTL; none of variant
-> 1's signoff was inherited, and none needed to be.**
+> **Heavily verified and physically signed off — but not qualified.
+> Every result below was produced in this repository, on this variant's
+> RTL; none of variant 1's signoff was inherited, and none needed to
+> be.**
 >
 > The baseline came from a design that meets its O1–O7 gate, but
 > **inheritance is not evidence**. The ISA is wider here and three core
@@ -42,8 +44,8 @@ describe different things.
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence benches below |
 > | coverage (O6/O7) | **re-run and met, 2026-09-02** — line 96.1 % measured / **100 % with 23 reviewed waivers**, toggle **96.3 %** (≥ 95 criterion met), functional **100 % of 92 points** covering C/Zcmp, PMP, CLINT, E2E and the debug path |
 > | fault injection, FMEDA | **re-measured on this design** — eight campaigns on the final RTL; FMEDA **SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT** on *assumed* base rates ([doc/fmeda.md](doc/fmeda.md)) |
-> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip1`): setup **+0.040 ns** at the slow corner, hold clean, route DRC/antenna/XOR 0, **LVS matches uniquely** (172 684 devices / 91 066 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; two checks still open — [doc/chip.md](doc/chip.md) |
-> | gate-level simulation (O8) | **not done** — awaits work on the `chip1` netlist |
+> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip2b`, 2026-09-06/07, full RTL incl. the QSPI loader): setup **+0.040 ns** at the slow corner, hold clean, route DRC/antenna/XOR/KLayout-DRC 0, **LVS matches uniquely** (172 684 devices / 91 066 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; the magic overlap disposition still open — [doc/chip.md](doc/chip.md) |
+> | gate-level simulation (O8) | **not done** — awaits work on the `chip2b` netlist |
 >
 > What keeps this a warning: O8 is open, the FMEDA's base failure rates
 > are assumed rather than foundry data, and nothing here is qualified
@@ -56,7 +58,7 @@ describe different things.
 > |---|---|---|
 > | Lint, whole subsystem | clean, hard gate | `make lint` |
 > | Base block benches | pass | `make block` |
-> | New block benches | pass, **2 087 437 checks**, 13 benches, mutation-validated | `make block-20` |
+> | New block benches | pass, **2 087 478 checks**, 14 benches, mutation-validated | `make block-20` |
 > | Subsystem smoke simulation | pass | `make sim` |
 > | Safety, peripherals, traps, register walk | pass | `make safety periph trap regwalk` |
 >
@@ -118,6 +120,11 @@ either detected by a mechanism that reports it, or bounded by one.
   controller. The analog domain becomes a monitored safety element
   rather than an unobserved black box.
 * **APB expansion slot** for the SoC's own mixed-signal registers.
+* **QSPI boot loader** — fills the TCMs from external SPI NOR flash at
+  cold reset (1-bit or Quad I/O), verifies a CRC32 before releasing the
+  core, retries a failed load, and latches a sticky boot fault on the
+  ungated error pin — the volatile I-TCM becomes loadable on real
+  silicon.
 
 ## Repository layout
 
@@ -128,6 +135,7 @@ either detected by a mechanism that reports it, or bounded by one.
 | [rtl/bus/](rtl/bus/) | interconnect, TCM, APB bridge |
 | [rtl/periph/](rtl/periph/) | timer, interrupt controller, CLINT, AMS interface |
 | [rtl/debug/](rtl/debug/) | JTAG TAP (IEEE 1149.1, no riscv-dbg dependency), its clock-domain bridge and the read-only observation window it reaches |
+| [rtl/boot/](rtl/boot/) | QSPI-master boot loader |
 | [rtl/common/](rtl/common/) | clock domain crossing primitives |
 | [rtl/cdriscv_32s_20_subsys.sv](rtl/cdriscv_32s_20_subsys.sv) | subsystem top level |
 | [rtl/chip/](rtl/chip/) | full-chip top: the subsystem in the SG13G2 IO pad ring ([doc/chip.md](doc/chip.md)) |
@@ -142,10 +150,11 @@ either detected by a mechanism that reports it, or bounded by one.
 <img src="doc/img/cdriscv_chip_gds.png" width="50%"
      alt="cdriscv_32s_20_chip GDS, 2400 x 3500 um on IHP SG13G2">
 
-*`cdriscv_32s_20_chip` (run `chip1`) — 2400 × 3500 µm on IHP SG13G2:
-99-pad `sg13g2_io` ring (83 signal, 16 supply, 4 corners), six TCM SRAM
-macros, no ADC on die. The gap inside the die edge is the 140 µm
-allowance reserved for the deferred seal ring.*
+*`cdriscv_32s_20_chip` (final run `chip2b`) — 2400 × 3500 µm on IHP
+SG13G2: 105-pad `sg13g2_io` ring (89 signal incl. the QSPI group, 16
+supply, plus 4 corners), six TCM SRAM macros, no ADC on die. The gap
+inside the die edge is the 140 µm allowance reserved for the deferred
+seal ring.*
 
 Two levels, both on the complete RTL:
 
@@ -159,16 +168,19 @@ of minimum-strength `buf_1` fanout-repair buffers
 §15). A probe with `buf_4` and larger resizer margins recovered
 −0.719 → −0.059 ns.
 
-**Chip** (`flow/runs/chip1`, 2026-09-03/04, with those knobs): **timing
-closed** — setup **+0.040 ns** at slow 1.08 V/125 °C, TNS 0; hold
-+0.14 ns; route DRC 0; XOR 0; antenna clean; **LVS matches uniquely
-across 172 684 devices and 91 066 nets including the pad ring**. Seal
-ring and density fill are **deferred on reproduced PDK bugs** (the
-sealring PCell emits INT32_MIN coordinates for every size; the filler
-OOMs >13 GB on this die) with the die reserving the ring allowance;
-the chip-level KLayout DRC re-run and the classification of magic's
-obstruction-overlap messages are still open. Evidence and status:
-[doc/chip.md](doc/chip.md).
+**Chip** (`flow/runs/chip2b`, 2026-09-06/07, with those knobs — the
+final harden, full RTL including the QSPI loader and its six pads;
+`chip1`, 2026-09-03/04, was the 99-pad pre-loader run and also closed):
+**timing closed** — setup **+0.040 ns** at slow 1.08 V/125 °C, TNS 0;
+hold clean at every corner (+0.625 ns slow, +0.111 ns worst at fast);
+route DRC 0; XOR 0; antenna 0; KLayout signoff DRC 0; **LVS matches
+uniquely across 172 684 devices and 91 066 nets including the pad
+ring**; 335 518 instances. Seal ring and density fill are **deferred on
+reproduced PDK bugs** (the sealring PCell emits INT32_MIN coordinates
+for every size; the filler OOMs >13 GB on this die) with the die
+reserving the ring allowance; the classification of magic's 1026
+obstruction-overlap messages is still open — a disposition decision,
+not a failing check. Evidence and status: [doc/chip.md](doc/chip.md).
 
 ```sh
 cd flow && ./run_v2.sh <run-tag>     # subsystem
@@ -215,7 +227,7 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 |------|-------|----------|
 | Lint & structure | **clean** | `make lint lint-tb`, hard gate; waivers argued in [verif/lint/waivers.vlt](verif/lint/waivers.vlt) |
 | Base block benches | **pass** | `make block` — ALU (453 840 vectors, against the *new* ALU), SEC-DED, the divider (divide vectors only since 2026-09-02 — the dead multiply half of `multdiv` was removed; `block-mult` owns the multiplies), clock monitor, TCM, IF-stage equivalence |
-| New block benches | **pass, 2 087 437 checks**, 13 benches, mutation-validated | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
+| New block benches | **pass, 2 087 478 checks**, 14 benches, mutation-validated | `make block-20` — see [doc/variant_status.md](doc/variant_status.md) for the per-module breakdown and the mutation results |
 | Subsystem simulation | **pass** | `make sim`, plus `make safety periph trap regwalk` |
 | Architectural suite | **143 of 143 pass**, incl. B and C | `make riscof` against Spike, on the RTL with Zcmp; 43 PMP tests dropped by selection, and the suite is a vintage release — see [verif/riscof/README.md](verif/riscof/README.md) |
 | Co-simulation vs Spike | **O2 met, on the final RTL** | 1 015 480 871 instructions, 27 000 programs, zero mismatches, against frozen revision `2ecf4b2` (2026-09-02) — checked, not assumed |
@@ -223,16 +235,19 @@ export PATH="/foss/tools/bin:/foss/tools/verilator/bin:$PATH"
 | Coverage (O6/O7) | **met, 2026-09-02** | `make coverage` on the final RTL: line **96.1 % measured / 100 % with 23 reviewed waivers** ([verif/coverage_waivers.md](verif/coverage_waivers.md)); toggle **96.3 %** (≥ 95 criterion met); functional **100 %, 92 of 92 points** covering C/Zcmp, PMP, CLINT, E2E and the tck-domain debug blocks |
 | Fault injection | **re-measured, eight campaigns** | `build/fi_campaign*.txt` on the final RTL; two findings fed back into the RTL and re-measured closed — fi-e2e 10 SDCs → **0**, fi-pmp 90.8 % latent → **448/448 detected in 2 cycles** ([doc/verification_findings_20.md](doc/verification_findings_20.md) §18) |
 | FMEDA (O9) | **computed on this design** | **SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT** — past the ASIL D thresholds *on assumed base rates* ([doc/fmeda.md](doc/fmeda.md), 2026-09-02) |
-| Gate-level simulation (O8) | **not done** | awaits work on the `chip1` netlist |
+| Gate-level simulation (O8) | **not done** | awaits work on the `chip2b` netlist; the FMEDA population refresh from that netlist is open with it |
 | Physical, subsystem (`v2full`) | **clean except setup** | routing DRC 0, antenna 0, KLayout DRC 0, XOR 0, LVS unique (153 626 devices / 79 499 nets); setup −0.719 ns slow — root-caused to buf_1 fanout chains and fixed at chip level |
-| Physical, chip (`chip1`) | **timing closed, LVS clean** | setup **+0.040 ns** slow / TNS 0, hold +0.14 ns, route DRC 0, XOR 0, antenna 0; **LVS unique: 172 684 devices / 91 066 nets incl. the pad ring**. Open: chip DRC re-run (first pass judged a stale GDS), 956 obstruction-overlap messages to classify — [doc/chip.md](doc/chip.md) |
+| Physical, chip (`chip2b` — final) | **timing closed, LVS clean, DRC clean** | full RTL incl. the QSPI loader, 105 pads; setup **+0.040 ns** slow / TNS 0, hold +0.625 ns slow, route DRC 0, XOR 0, antenna 0, KLayout DRC 0; **LVS unique: 172 684 devices / 91 066 nets incl. the pad ring**; 335 518 instances. Supersedes `chip1` (99 pads, pre-loader, also closed). Open: 1026 obstruction-overlap messages to disposition (LVS-clean through the same extraction) — [doc/chip.md](doc/chip.md) |
 | Seal ring | **deferred — PDK bug, reproduced** | sealring PCell emits INT32_MIN coordinates at every size incl. the PDK's own example; die reserves the 140 µm allowance so the ring adds later without floorplan change ([doc/chip.md](doc/chip.md), findings §19) |
 | Density fill | **deferred — tool OOM** | PDK filler >13 GB on the 8.4 mm² die, one fill area at a time; the subsystem flow never ran metal fill either ([doc/chip.md](doc/chip.md)) |
+| FPGA (ULX3S / ECP5) | **procedure + verified firmware image; not yet built** | [doc/fpga_ulx3s.md](doc/fpga_ulx3s.md): `fpga/ulx3s/firmware_smoke.hex` boots the RTL through the real QSPI loader in simulation; open prerequisites — an EBR-mappable TCM variant, an actual nextpnr-ecp5 run, a validated `ulx3s.lpf` |
 
 The honest summary: the O1–O7 and O9 objectives are met on this
-variant's own runs, the chip level is hardened and timing-closed, and
-what remains is O8 (gate level), the tapeout-preparation geometry
-deferred on reproduced PDK bugs, and everything that separates measured
+variant's own runs, the chip level is hardened and timing-closed with
+the complete RTL (`chip2b`), and what remains is O8 (gate level) plus
+the FMEDA population refresh from that netlist, the
+tapeout-preparation geometry deferred on reproduced PDK bugs, the
+magic-overlap disposition, and everything that separates measured
 evidence from a safety case — assumed failure rates above all. The two
 equivalence benches remain the strongest evidence here, because they
 compare against an implementation that is already signed off rather

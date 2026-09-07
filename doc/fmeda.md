@@ -17,8 +17,10 @@ each labeled throughout:
   instances, die 3.63 mm² -- re-read from that run's `metrics.json`),
   plus RTL elaboration for the CLINT (197), the E2E link
   endpoints (134) and the Zcmp sequencer (12), which
-  **postdate the v2full harden (2026-08-30)** and exist only in RTL
-  until the next harden; and diagnostic coverage from this variant's
+  **postdate the v2full harden (2026-08-30)**; the final `chip2b`
+  chip netlist now contains them, but these populations have not yet
+  been re-read from it (the open refresh of section 6, item 2); and
+  diagnostic coverage from this variant's
   fault-injection campaigns (2026-09-02/04: workloads A-D re-run, plus
   the systematic E2E / CLINT / PMP / Zcmp / debug sweeps --
   `build/fi_campaign*.txt`).
@@ -43,7 +45,7 @@ evidence, foundry data and an assessed safety case.
 ## 2. Result
 
 ```
-cdriscv-32s-20 FMEDA -- computed 2026-09-01
+cdriscv-32s-20 FMEDA -- computed 2026-09-02
 ASSUMED rates: SRAM 700 FIT/Mbit, FF 400 FIT/Mbit, permanent 27.9 FIT total
   (permanent = assumed 20 FIT per 2.6 mm^2, scaled to the measured 3.630 mm^2 die), MBU fraction 2%
 Populations: 6647 placed FFs + 343 RTL-counted (CLINT/E2E/Zcmp postdate the v2full harden),
@@ -112,8 +114,10 @@ the stated assumptions, with the caveats of section 1.
 * **multdiv dead multiply arm** (finding §17, waiver W5): faults there
   are **safe by unreachability** -- the subsystem cannot select the
   iterative multiply -- and have **no functional observer**. They sit
-  inside the core-pair safe fraction; they are not counted as covered,
-  and the area remains dead weight a future revision should remove.
+  inside the core-pair safe fraction and are not counted as covered.
+  The arm is still present in the v2full netlist these populations
+  count; the RTL deleted it on 2026-09-02 (W5 closed), so the `chip2b`
+  population refresh drops the dead area for good.
 
 ## 4. Where the residual lives
 
@@ -128,23 +132,25 @@ to the safety case.
 ## 5. Sensitivity
 
 The metrics are ratios, insensitive to the absolute FIT scale. They are
-sensitive to: the MBU fraction (2 % assumed), the PMP dc (measured
-under one region-usage profile), the mtime safe fraction (workload
-dependent), and the unattributed-flop dc (0.90 assigned, deliberately
-below the named-row average). Setting the PMP arrays' dc to zero --
-the no-lockstep-credit worst case -- moves LFM by about 2 points;
-parity over the arrays (a `cfg_parity` instance on each core's fold,
-~70 gates) would take the whole question off the table and is the
-single cheapest LFM improvement available.
+sensitive to: the MBU fraction (2 % assumed), the mtime safe
+fraction (workload dependent), and the unattributed-flop dc (0.90
+assigned, deliberately below the named-row average). The PMP arrays
+left this list on 2026-09-02: the parity extension over
+pmpcfg/pmpaddr (a `cfg_parity` instance on each core's fold, ~70
+gates) measured 448/448 detected independent of region usage, so the
+roughly 2 points of LFM the unguarded arrays used to put at stake now
+rest on a directed measurement rather than a workload profile.
 
 ## 6. Handoff checklist for the safety-case owner
 
 1. Replace the ASSUMED block in `scripts/fmeda.py` with foundry FIT
    data and the mission profile.
-2. Re-harden with the CLINT, E2E endpoints and Zcmp sequencer in the
-   netlist, re-read the populations, re-run this script.
-3. Decide the PMP story: parity over the arrays, or a mission-profile
-   argument for the measured latent share.
+2. The re-harden is done (`chip2b` carries the CLINT, E2E endpoints,
+   Zcmp sequencer and QSPI loader); re-read the populations from that
+   netlist and re-run this script -- still open.
+3. The PMP story is decided in RTL: parity over the arrays
+   (2026-09-02, measured 448/448) -- credit it as a measured
+   mechanism.
 4. Decide the multi-bit story: SRAM column interleaving factor, and
    whether the software scrub (V30, re-validated this variant as
    `fi-check`) is claimed for double-bit configuration coverage.

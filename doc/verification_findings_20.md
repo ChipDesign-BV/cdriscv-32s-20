@@ -897,3 +897,17 @@ the IO cells from the overlap check the way the SRAM macros are, or
 waive the message class with the analysis attached. Until one of those
 is done it stays OPEN in [variant_status.md](variant_status.md) and
 [chip.md](chip.md).
+
+**Resolution (2026-09-06/07): the re-run happened as a full re-harden,
+and settled two of the three.** The QSPI boot loader forced a new chip
+harden anyway (`chip2b`, the final one — 105 pads, complete RTL), so
+the DRC re-run rode it: **KLayout signoff DRC 0 errors** on `chip2b`'s
+own freshly streamed GDS, closing the stale-state question with a
+valid check rather than a prediction. Timing closed again with the
+loader in (setup +0.040 ns slow, hold +0.625 ns slow), LVS matched
+uniquely (172 684 devices / 91 066 nets), XOR 0, antenna 0. The
+overlap classification did **not** settle: `chip2b` reports **1026**
+messages (1017 `obsm7`/metal7, 9 `obsm3`/metal3 — the six QSPI pads
+add their share to chip1's 956), same form, same argument, and the
+disposition decision is still open. The seal ring and density fill
+remain deferred on the same reproduced PDK bugs.
