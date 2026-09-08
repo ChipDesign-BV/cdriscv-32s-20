@@ -44,7 +44,7 @@ describe different things.
 > | formal decoder proof over all 2³² encodings | **superseded** — that proof was of variant 1's decoder; see the equivalence benches below |
 > | coverage (O6/O7) | **re-run and met, 2026-09-02** — line 96.1 % measured / **100 % with 23 reviewed waivers**, toggle **96.3 %** (≥ 95 criterion met), functional **100 % of 92 points** covering C/Zcmp, PMP, CLINT, E2E and the debug path |
 > | fault injection, FMEDA | **re-measured on this design** — eight campaigns on the final RTL; FMEDA **SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT** on *assumed* base rates ([doc/fmeda.md](doc/fmeda.md)) |
-> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip2b`, 2026-09-06/07, full RTL incl. the QSPI loader): setup **+0.040 ns** at the slow corner, hold clean, route DRC/antenna/XOR/KLayout-DRC 0, **LVS matches uniquely** (172 684 devices / 91 066 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; the magic overlap disposition still open — [doc/chip.md](doc/chip.md) |
+> | RTL2GDS: DRC, LVS, timing closure | **closed at chip level** (`chip2b`, 2026-09-06/07, full RTL incl. the QSPI loader): setup **+0.040 ns** at the slow corner, hold clean, route DRC/antenna/XOR/KLayout-DRC 0, **LVS matches uniquely** (172 684 devices / 91 066 nets, pad ring included). Seal ring and density fill deferred on PDK bugs; magic overlap messages dispositioned as benign IO-cell abstraction artifacts, waived with analysis — [doc/chip.md](doc/chip.md) |
 > | gate-level simulation (O8) | **not done** — awaits work on the `chip2b` netlist |
 >
 > What keeps this a warning: O8 is open, the FMEDA's base failure rates
@@ -178,9 +178,10 @@ uniquely across 172 684 devices and 91 066 nets including the pad
 ring**; 335 518 instances. Seal ring and density fill are **deferred on
 reproduced PDK bugs** (the sealring PCell emits INT32_MIN coordinates
 for every size; the filler OOMs >13 GB on this die) with the die
-reserving the ring allowance; the classification of magic's 1026
-obstruction-overlap messages is still open — a disposition decision,
-not a failing check. Evidence and status: [doc/chip.md](doc/chip.md).
+reserving the ring allowance. Magic's 1026 obstruction-overlap messages
+are dispositioned as benign IO-cell LEF-abstraction artifacts and
+waived with analysis (LVS matches uniquely through the same extraction)
+— not a failing check. Evidence: [doc/chip.md](doc/chip.md).
 
 ```sh
 cd flow && ./run_v2.sh <run-tag>     # subsystem

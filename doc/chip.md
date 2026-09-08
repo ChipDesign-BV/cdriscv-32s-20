@@ -8,9 +8,11 @@ list from the RTL and the pad geometry from the PDK LEF before emitting
 anything.
 
 **Status: hardened to GDS and timing-closed on the complete RTL**
-(`flow/runs/chip2b`, 2026-09-06/07) — see the gate table below, the two
-deliberately deferred items (seal ring, density fill) and the one item
-still open (the magic overlap disposition).
+(`flow/runs/chip2b`, 2026-09-06/07) — see the gate table below. Two
+items are deliberately deferred (seal ring, density fill — both on PDK
+tool bugs, with the die allowance reserved); the magic overlap messages
+are dispositioned as benign IO-cell abstraction artifacts and waived
+with analysis (below).
 
 <img src="img/cdriscv_chip_gds.png" width="50%"
      alt="cdriscv_32s_20_chip GDS, 2400 x 3500 um on IHP SG13G2">
@@ -191,14 +193,21 @@ margins took the fetch critical path from −0.719 ns to −0.059 ns — and
   [§19](verification_findings_20.md) carries the stale-state lesson);
   `chip2b`'s DRC ran on its own freshly streamed GDS and reports **0
   errors**.
-* **magic "illegal overlap" messages** — still open, carried to
-  `chip2b` (956 here, 1026 there — the QSPI pads add their share). All
-  of the form `obsm* vs metal* types do not connect`: the IO cells'
-  LEF **obstruction** layers against routed metal — an abstraction
-  artifact, not drawn shorts, and LVS matched uniquely through the same
-  magic extraction. Classification is pending a decision: exclude the
-  IO cells from the check the way the SRAMs are, or waive with
-  analysis.
+* **magic "illegal overlap" messages** — **dispositioned: waived as
+  benign IO-cell abstraction artifacts.** `chip2b` reports 1026 (1017
+  `obsm7` vs metal7, 9 `obsm3` vs metal3), all of the form
+  `obsm* vs metal* types do not connect`: the IO cells' LEF
+  **obstruction** layers against routed metal, not drawn shorts. Three
+  facts settle it as benign: (1) every message is an obstruction-layer
+  pseudo-shape, which carries no conductor; (2) **LVS matched uniquely**
+  through the same magic extraction (172 684 devices / 91 066 nets), so
+  there is no electrical short; (3) it is the identical situation the
+  SRAM macros already present and are excluded for. The disposition is
+  therefore to **waive with the analysis above** — equivalently, the
+  IO cells can be excluded from the overlap check as the SRAMs are,
+  which suppresses the messages without touching geometry. This is a
+  waiver, not a claim the messages are absent; a fabricating foundry
+  sign-off would re-confirm it against the delivered GDS.
 
 ## Pinout table
 

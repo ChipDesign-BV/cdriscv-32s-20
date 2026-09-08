@@ -568,11 +568,13 @@ record.
    chip DRC re-run that was open here is **resolved**: `chip1`'s first
    pass judged the stale sealring GDS (its 60 errors are that corrupt
    geometry, an invalid check), and `chip2b`'s DRC on its own GDS
-   reports **0 errors**. Still OPEN: the classification of the **1026
-   magic illegal overlaps** on `chip2b` (1017 `obsm7`/metal7, 9
-   `obsm3`/metal3 — all LEF-obstruction vs routed-metal artifacts,
-   LVS-clean through the same extraction; exclude the IO cells like
-   the SRAMs, or waive with analysis — a decision, not yet made).
+   reports **0 errors**. The **1026 magic illegal overlaps** on `chip2b`
+   (1017 `obsm7`/metal7, 9 `obsm3`/metal3 — all LEF-obstruction vs
+   routed-metal artifacts, LVS-clean through the same extraction) are
+   **dispositioned: waived as benign IO-cell abstraction artifacts**,
+   with the analysis in [chip.md](chip.md) (equivalently, exclude the
+   IO cells from the check as the SRAMs already are — no geometry
+   change either way).
 
 9. **Coverage (O6/O7), fault injection and the FMEDA are all this
    variant's now.** On the final RTL (2026-09-02, post the three
