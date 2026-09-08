@@ -83,8 +83,22 @@ jobs:
       - name: Lint the bench
         run: make lint-tb
 
+      # block-zcmp (inside `make block`) replays its micro-op dump against a
+      # Spike commit log, so this job needs Spike too. Same cache key as the
+      # co-simulation job, so whichever runs build_spike first populates it.
+      - name: Cache the Spike build
+        id: spike-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/spike
+          key: spike-${{ runner.os }}-v1
+
+      - name: Build Spike
+        if: steps.spike-cache.outputs.cache-hit != 'true'
+        run: sh scripts/build_spike.sh /opt/spike
+
       - name: Block benches
-        run: make block
+        run: make block SPIKE=/opt/spike/bin/spike
 
       - name: Build the smoke program
         run: make sw
