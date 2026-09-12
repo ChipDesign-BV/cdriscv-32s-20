@@ -914,7 +914,7 @@ artefacts, waived with the analysis in [chip.md](chip.md) — LVS matches
 uniquely through the same extraction. The seal ring and density fill
 remain deferred on the same reproduced PDK bugs.
 
-## 20. A red nightly hid three stale inherited artefacts (2026-09-12)
+## 20. A red nightly hid four stale inherited artefacts (2026-09-12)
 
 **Symptom.** Once the block-benches job was given Spike (the
 `block-zcmp` starvation, fixed 2026-09-08), the nightly run turned red
@@ -990,12 +990,43 @@ stem**, so file, `-s` and module can never disagree; regeneration now
 reproduces the committed bench **byte-identically**, which is the proof
 a generator owes its reference.
 
+**Layer 4 — `make sta` rejected its own netlist.** With `make gate`
+green, the nightly reached `make sta` for the first time and OpenSTA
+stopped: `Error: 171 build/gate/cdriscv_32s_20_subsys_sta_fix.v line
+436465, syntax error` — and with `pipefail` on, that is `sta`'s own
+exit. Line 436465 is `.Depth(32'd4096),` inside
+`cdriscv_32s_20_tcm #( … ) u_dtcm (` — the parameter list OpenSTA's
+structural parser rejects, exactly what `scripts/sta_netlist_fixup.py`
+exists to remove. It removed none: "stripped parameters from **0**
+black box instances". Its regex matched `\bcdriscv_tcm\b` — the
+**variant-1** module name — while its own header comment, renamed at
+the fork, correctly says `cdriscv_32s_20_tcm`. The comment was updated;
+the regex was not. A `$_ALDFFE_PNP_` seen earlier in the same log was a
+red herring: it lives in the step-5 `gate-subsys` netlist, whose rule
+does not tie `boot_addr_i` (finding V18), whereas the STA rule does, and
+the STA netlist holds no yosys-internal cell at all. Fixed by making the
+regex variant-agnostic (`\bcdriscv\w*_tcm\b`) so a future rename cannot
+repeat the drift. A second defect surfaced on the way: the `_sta_fix.v`
+rule did not list the fixup script as a prerequisite, so after fixing
+the script a plain `make sta` would have reused the stale, broken
+netlist and reported the fix as ineffective — the "stale result reads
+as fresh" trap; the script is now a prerequisite. Verified: `make sta`
+exit 0, "stripped parameters from **2** black box instances", both TCMs
+now written `cdriscv_32s_20_tcm u_dtcm (` / `u_itcm (`, OpenSTA
+reporting hold worst slack **+0.184 ns**. The as-synthesised setup
+figures it reports (worst −54.3 ns; reset trees cut −4.2 ns) describe
+the unplaced, unbuffered flattened netlist and are informational by
+design — the Makefile names `fmax` (placed, buffered) as the number to
+quote, and the signed-off timing is `chip2b`'s (setup +0.040 ns slow).
+`make sta` passing means it ran and reported, which it had not done
+since the fork.
+
 **Result.** `make gate` exit 0, every target green on real cells:
 `tb_alu`, `tb_multdiv`, `tb_ecc`, `tb_gate_fsm`, `fsm-apb` (17 checks),
 `fsm-cdriscv_32s_20_lsu` (8 encodings recover to idle),
 `fsm-cdriscv_32s_20_mbist` (16 encodings), `fsm-cdriscv_32s_20_ams_if`
 (4), `fsm-cdriscv_32s_20_core` (8 encodings, core still fetching), and
 `gate-subsys` (all four programs pass). The working tree carries only
-the two intended edits — no bench was rewritten. Three layers, one
+the two intended edits — no bench was rewritten. Four layers, one
 disease: variant-1 artefacts inherited at the fork and never revisited
 as variant 2 grew, each invisible behind a job that was already red.

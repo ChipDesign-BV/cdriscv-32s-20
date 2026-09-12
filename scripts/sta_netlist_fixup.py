@@ -24,7 +24,14 @@ import sys
 # Non-greedy up to the closing paren that is followed by the instance
 # name: a character class excluding ")" stops at the first `.Depth(...)`
 # and matches nothing at all, which it did.
-INST = re.compile(r"(\bcdriscv_tcm\b)\s*#\s*\(.*?\)\s*(\w+)\s*\(", re.DOTALL)
+# Variant-agnostic on purpose.  This matched the variant-1 name
+# cdriscv_tcm only, so in a cdriscv-32s-20 netlist -- whose black boxes
+# are cdriscv_32s_20_tcm, exactly as the header above already says -- it
+# matched nothing, stripped 0 parameter lists, and OpenSTA stopped with
+# "syntax error" on the first `#(` it met (finding 20, layer 4).  The
+# comment had been renamed at the fork; the regex had not.  \w* accepts
+# any variant infix, so a future rename cannot repeat the drift.
+INST = re.compile(r"(\bcdriscv\w*_tcm\b)\s*#\s*\(.*?\)\s*(\w+)\s*\(", re.DOTALL)
 
 
 def main():

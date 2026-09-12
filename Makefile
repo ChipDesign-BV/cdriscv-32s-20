@@ -1197,7 +1197,11 @@ $(BUILD)/gate/cdriscv_32s_20_subsys_sta.v: $(RTL) verif/gate/cdriscv_32s_20_tcm_
 	  echo "STA netlist still has behavioural registers -- not fully mapped"; \
 	  exit 1; fi
 
-$(BUILD)/gate/cdriscv_32s_20_subsys_sta_fix.v: $(BUILD)/gate/cdriscv_32s_20_subsys_sta.v
+# The fixup script is a prerequisite: a change to it must regenerate the
+# timing netlist, or a stale _sta_fix.v reads as fresh and a fixed script
+# looks like it did not work (finding 20, layer 4).
+$(BUILD)/gate/cdriscv_32s_20_subsys_sta_fix.v: $(BUILD)/gate/cdriscv_32s_20_subsys_sta.v \
+                                                scripts/sta_netlist_fixup.py
 	$(PYTHON) scripts/sta_netlist_fixup.py $< $@
 
 
