@@ -914,7 +914,7 @@ artefacts, waived with the analysis in [chip.md](chip.md) — LVS matches
 uniquely through the same extraction. The seal ring and density fill
 remain deferred on the same reproduced PDK bugs.
 
-## 20. A red nightly hid a stale inherited gate test (2026-09-12)
+## 20. A red nightly hid three stale inherited artefacts (2026-09-12)
 
 **Symptom.** Once the block-benches job was given Spike (the
 `block-zcmp` starvation, fixed 2026-09-08), the nightly run turned red
@@ -953,3 +953,49 @@ operation the block implements — `42 / 6 = 7` (`MD_DIVU`) — declares
 multiply encoding again, and says why in its header. Every encoding
 still leads to a defined state, `11 -> 00`, `recovered: 42/6 = 7`,
 PASS. The design was never wrong; the question the bench asked was.
+
+**Layer 2 — `gate-fsm-core` could not synthesise its netlist.** With
+`gate-fsm` green, the same step died three seconds later:
+`make: *** [build/gate/cdriscv_32s_20_core_gate.v] Error 1`, slang
+reporting `unknown module` for `cdriscv_32s_20_if_align`, `_zcmp`,
+`_mult` and `_pmp` (twice). `CORE_RTL`, the core synth's file list, was
+a hand-written copy of the **variant-1** core and never gained the
+modules variant 2 added to the core — finding 17's single-cycle `mult`,
+the C-extension `if_align`/`decompress`, the `zcmp` sequencer, `pmp`.
+The core-level illegal-state bench had therefore not run since those
+landed. Fixed by deriving, not copying:
+`CORE_RTL := $(filter rtl/core/% rtl/common/%, $(RTL))` — the canonical,
+dependency-ordered `files.f` that lint and every simulation already
+read. It yields the old twelve files plus the five missing ones and
+cannot drift again. The proof that this is the right shape was already
+in the same Makefile: `gate-subsys` reads `$(RTL)` directly and was
+never stale.
+
+**Layer 3 — a generator that had been edited to match.** Running the
+full `make gate` locally then failed *earlier* than CI had:
+`Unable to find the root module "tb_fsm_cdriscv_lsu"`. The tracked bench
+showed as modified with a fresh mtime — the make run had **regenerated
+a committed file**. `gen_fsm_bench.py` named the bench module from its
+DUT argument (`tb_fsm_cdriscv_32s_20_lsu`) while the file and the
+Makefile's `-s` say `tb_fsm_cdriscv_lsu`; the committed bench had been
+hand-patched to the `-s` name, hiding the disagreement. CI passed this
+target only by accident: a fresh checkout has uniform mtimes, so the
+generator rule never fires and CI compiles the patched file. Locally
+`lsu.sv` was newer, the rule fired, and the patch was exposed — the
+next commit touching `lsu.sv` would have done the same to CI. This is
+the CLAUDE.md section-3 anti-pattern exactly: a generator whose
+reference was edited to agree with it, so the check could not see the
+error. Fixed by deriving the module name from the **output filename
+stem**, so file, `-s` and module can never disagree; regeneration now
+reproduces the committed bench **byte-identically**, which is the proof
+a generator owes its reference.
+
+**Result.** `make gate` exit 0, every target green on real cells:
+`tb_alu`, `tb_multdiv`, `tb_ecc`, `tb_gate_fsm`, `fsm-apb` (17 checks),
+`fsm-cdriscv_32s_20_lsu` (8 encodings recover to idle),
+`fsm-cdriscv_32s_20_mbist` (16 encodings), `fsm-cdriscv_32s_20_ams_if`
+(4), `fsm-cdriscv_32s_20_core` (8 encodings, core still fetching), and
+`gate-subsys` (all four programs pass). The working tree carries only
+the two intended edits — no bench was rewritten. Three layers, one
+disease: variant-1 artefacts inherited at the fork and never revisited
+as variant 2 grew, each invisible behind a job that was already red.

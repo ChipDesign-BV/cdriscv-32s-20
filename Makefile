@@ -1052,12 +1052,14 @@ gate-fsm-ams: $(BUILD)/gate/tb_fsm_cdriscv_ams_if.vvp
 	$(VVP) $< | tee $(BUILD)/gate/fsm_ams.log
 	@grep -q "PASS" $(BUILD)/gate/fsm_ams.log
 
-CORE_RTL := rtl/core/cdriscv_32s_20_pkg.sv rtl/common/cdriscv_32s_20_sync.sv \
-            rtl/common/cdriscv_32s_20_cfg_parity.sv rtl/common/cdriscv_32s_20_counter64.sv \
-            rtl/core/cdriscv_32s_20_alu.sv rtl/core/cdriscv_32s_20_decoder.sv \
-            rtl/core/cdriscv_32s_20_regfile.sv rtl/core/cdriscv_32s_20_multdiv.sv \
-            rtl/core/cdriscv_32s_20_lsu.sv rtl/core/cdriscv_32s_20_csr.sv \
-            rtl/core/cdriscv_32s_20_if_stage.sv rtl/core/cdriscv_32s_20_core.sv
+# The core's file set is DERIVED from the canonical list, never copied.
+# A hand-written copy here drifted: it was the variant-1 core, and the
+# core gate synth could not elaborate cdriscv_32s_20_core once variant 2
+# added if_align, zcmp, mult and pmp (finding 20 -- it hid behind two
+# other red nightly failures).  files.f is dependency-ordered and is what
+# lint and every simulation read, so filtering it to rtl/core + rtl/common
+# keeps this synth in step with the design by construction.
+CORE_RTL := $(filter rtl/core/% rtl/common/%, $(RTL))
 
 $(BUILD)/gate/cdriscv_32s_20_core_gate.v: $(CORE_RTL) | $(BUILD)/gate
 	$(YOSYS) -p "plugin -i slang; \

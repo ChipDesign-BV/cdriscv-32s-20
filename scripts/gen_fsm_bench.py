@@ -61,6 +61,14 @@ def ports(path, module):
 
 def main():
     rtl, module, state, width, out = sys.argv[1:6]
+    # The bench's module name is its output file's stem, so the module,
+    # the file and the Makefile's `-s` can never disagree.  Deriving it
+    # from the DUT name instead emitted tb_fsm_cdriscv_32s_20_lsu into a
+    # file and a -s that say tb_fsm_cdriscv_lsu, and the committed bench
+    # had been hand-patched to hide it -- regeneration then broke the
+    # build (finding 20).  A generator must reproduce its reference.
+    tb = out.rsplit("/", 1)[-1]
+    tb = tb[:-3] if tb.endswith(".sv") else tb
     high = set(sys.argv[6].split(",")) if len(sys.argv) > 6 and sys.argv[6] else set()
     w = int(width)
     pl = ports(rtl, module)
@@ -90,7 +98,7 @@ def main():
 `default_nettype none
 `timescale 1ns/1ps
 
-module tb_fsm_{module};
+module {tb};
 
   logic clk = 0, rst_n;
   always #5ns clk = ~clk;
