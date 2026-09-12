@@ -1030,3 +1030,22 @@ since the fork.
 the two intended edits — no bench was rewritten. Four layers, one
 disease: variant-1 artefacts inherited at the fork and never revisited
 as variant 2 grew, each invisible behind a job that was already red.
+
+**CI confirmation (run #66, dispatched on `ace9f62`).** `nightly-deep`
+completed **success**: step 5 `make gate` 19:03→19:11 (7.5 min), step 6
+`make sta` 19:11→19:13 (2.3 min), step 7 `make fi FI_RUNS=2600`
+19:13→23:42 (**4 h 29 min**). A scan of the last sixty runs (back to
+2026-08-30) found **no nightly that had ever completed step 7** — it was
+`skipped` in every one, behind a step-5 or step-6 failure — so this is
+the first fully green `nightly-deep` in the repository's recorded
+history. Two things learned about step 7 that are worth keeping: (1)
+`FI_RUNS` feeds `--runs` of only the four random campaigns
+(arith/trap/mem/check); the five sweeps (e2e/clint/pmp/zcmp/dbg —
+400/435/448/248/64 upsets) are fixed-size, so at `FI_RUNS=2600` the
+campaign is ~10 400 random plus 1 595 swept upsets, parallelised over
+`cpu_count` by `fi_campaign.py`. A local `FI_RUNS=20` calibration took
+80 min because the fixed sweeps dominate; a naive "×130" extrapolation
+from it is wrong, and is recorded here so it is not repeated. (2) At
+269 of the job's 360-minute ceiling the margin is real but not large —
+a slower runner or a longer fault list would time out. Not a failure; a
+number to watch.
