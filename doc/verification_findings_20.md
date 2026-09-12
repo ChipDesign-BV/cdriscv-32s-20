@@ -906,8 +906,50 @@ own freshly streamed GDS, closing the stale-state question with a
 valid check rather than a prediction. Timing closed again with the
 loader in (setup +0.040 ns slow, hold +0.625 ns slow), LVS matched
 uniquely (172 684 devices / 91 066 nets), XOR 0, antenna 0. The
-overlap classification did **not** settle: `chip2b` reports **1026**
+overlap classification did **not** settle here: `chip2b` reports **1026**
 messages (1017 `obsm7`/metal7, 9 `obsm3`/metal3 — the six QSPI pads
-add their share to chip1's 956), same form, same argument, and the
-disposition decision is still open. The seal ring and density fill
+add their share to chip1's 956), same form, same argument. It was
+dispositioned afterwards (2026-09-08) as benign IO-cell LEF-obstruction
+artefacts, waived with the analysis in [chip.md](chip.md) — LVS matches
+uniquely through the same extraction. The seal ring and density fill
 remain deferred on the same reproduced PDK bugs.
+
+## 20. A red nightly hid a stale inherited gate test (2026-09-12)
+
+**Symptom.** Once the block-benches job was given Spike (the
+`block-zcmp` starvation, fixed 2026-09-08), the nightly run turned red
+on something new: `nightly-deep` → `gate-fsm`,
+`[tb_gate_fsm] FAIL: after an illegal state, 7*6 gave 0 (valid=1)`,
+four nights in a row on an unchanged commit, and reproducible locally.
+It looked like the one thing that bench exists to catch — synthesis
+optimising the multiplier FSM's illegal-state recovery away, which
+would make coverage waiver W2a false at gate level.
+
+**It was not the recovery.** The bench's own per-encoding sweep
+answered that first: `11 -> 00` — the unused encoding returns to
+`MD_IDLE` on real cells, exactly as the `default:` arm says. What
+failed was the *functional* proof that follows it: a request for
+`7*6`. This module is the **divider only** — finding 17 (commit
+`2ecf4b2`) moved every multiply to the single-cycle
+`cdriscv_32s_20_mult`, and the divider's structural contract is that a
+multiply encoding never reaches `req_i`; its result mux answers one
+with a defensive 0. The bench, inherited unchanged from
+cdriscv-32s-10 where the block *does* multiply, drove a 2-bit
+`operator = 0` into the 3-bit `md_op_e` port — zero-extended to
+`3'b000 = MD_MUL`. The FSM ran (`valid=1`), the mux returned 0, and the
+contract check that would have named the cause is `ifndef SYNTHESIS`,
+so on gates it is silent.
+
+**Why it stayed hidden.** `nightly-deep` runs only on the schedule,
+and every nightly since the fork had already been red on the
+block-benches job. A stale test behind a red job is invisible: the
+run-level verdict was "failure" either way. Fixing the first failure
+is what exposed the second — a reminder that a CI that is already red
+is not being read.
+
+**Fix.** The bench now proves post-recovery function with the
+operation the block implements — `42 / 6 = 7` (`MD_DIVU`) — declares
+`operator` at the full `md_op_e` width so nothing zero-extends into a
+multiply encoding again, and says why in its header. Every encoding
+still leads to a defined state, `11 -> 00`, `recovered: 42/6 = 7`,
+PASS. The design was never wrong; the question the bench asked was.
