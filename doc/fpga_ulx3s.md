@@ -6,8 +6,8 @@
 > **verified** in this repository is marked ✅; what is a documented
 > recipe not yet run here is marked ⚠. Specifically:
 > - ✅ the firmware image ([`fpga/ulx3s/firmware_smoke.hex`](../fpga/ulx3s/firmware_smoke.hex)) is real and **boots the core in simulation** through the actual QSPI loader path (the flasher `.bin` regenerates from it via `mkbootimg`).
-> - ⚠ the ECP5 synthesis/place-route flow has **not been run** — `nextpnr-ecp5` is not installed in this container (only `nextpnr-ice40` is). The commands are the standard open ECP5 flow; they have not been executed against this design.
-> - ⚠ an **FPGA-mappable TCM is a prerequisite that does not exist yet** (§3). The current SEC-DED TCM does not infer as block RAM.
+> - ✅ **ECP5 synthesis has been run** (`make fpga-synth`, 2026-09-13): the whole subsystem with the loader maps to **25 986 LUT4, 7 412 FF, 20 DP16KD, 8 MULT18X18D** (41 866 cells) — inside the 45F's 44 k LUTs, 108 EBRs and 72 multipliers, with the multipliers to spare. ⚠ Place-and-route has **not** been run — `nextpnr-ecp5` is not installed in this container (only `nextpnr-ice40` is) — so timing on the board and the LUT figure after packing are unmeasured.
+> - ✅ the TCM **does** infer as block RAM (§3): the 2026-09-06 claim that it "collapses to ~320 k flip-flops" was made with the ASIC synthesis script, which has no block-RAM mapping pass; under `synth_ecp5` the same RTL maps each 4096×39 TCM to 10 EBRs. There is no TCM prerequisite.
 
 ## 1. Why this board
 
@@ -89,29 +89,35 @@ you can pre-initialise the TCM block RAM from a `$readmemh` file and set
 per line, `scripts/mkimage.py`). This is the faster path to first-light;
 the QSPI path is the one that mirrors silicon and exercises the loader.
 
-## 3. Prerequisite: an FPGA-mappable TCM ⚠
+## 3. The TCM infers as block RAM ✅ (a withdrawn prerequisite)
 
-The current TCM (`rtl/bus/cdriscv_32s_20_tcm.sv`) stores 39-bit SEC-DED
-words with a read-modify-write on sub-word access. Measured 2026-09-06:
-under yosys it **does not infer as block RAM** — it collapses to ~320k
-flip-flops, which no FPGA will hold. Before a real ECP5 build, the TCM
-needs a block-RAM-friendly variant:
+The TCM (`rtl/bus/cdriscv_32s_20_tcm.sv`) stores 39-bit SEC-DED words
+with a read-modify-write on sub-word access. This section used to say
+that under yosys it **does not infer as block RAM** — "collapses to
+~320 k flip-flops" — and name a block-RAM-friendly variant as the one
+real gate before a bitstream. That measurement (2026-09-06) was made
+with the ASIC synthesis script, whose `synth` has no block-RAM mapping
+and therefore turns every `$mem` into flops; the 320 k figure is
+simply the two arrays' bit count (2 × 4096 × 39 = 319 488). It was a
+tool-flow artefact, not a property of the RTL.
 
-- one true dual-nothing single-port synchronous array that maps to EBR
-  (`$mem` inferrable: single clock, no async read, registered output);
-- the (39,32) SEC-DED either kept (39-bit-wide EBR — ECP5 EBR is 18-bit,
-  so 39 bits = 3 EBR wide, fine) or, for a functional demo, reduced to
-  byte parity;
-- selected behind the existing parameterisation, so the ASIC build keeps
-  the macro-backed path and the FPGA build gets the inferrable one — the
-  same split `BootEnable` already establishes.
+Measured 2026-09-13 with `synth_ecp5` on the unmodified TCM alone
+(`Depth=4096`): **10 DP16KD, 91 TRELLIS_FF, 470 LUT4** — the array is
+recognised by `memory_libmap` (single clock, synchronous write,
+registered read into `rd_cw`) and packed as five 2048×9 EBR columns two
+deep. At subsystem level the two TCMs are the 20 DP16KD in the banner.
+No RTL variant is needed; the ASIC build's macro-backed path and the
+FPGA build's EBR path come from the same source.
 
-This is bounded RTL work (a memory variant plus a bench), not a redesign,
-and it is the one real gate between here and a bitstream.
+## 4. The ECP5 flow — synthesis run ✅, place-and-route not ⚠
 
-## 4. The ECP5 flow ⚠ (procedure, not yet run here)
-
-Once §3 lands, the open flow is:
+`make fpga-synth` runs step 1 below (about two hours, almost all of it
+in ABC9) and leaves the cell statistics in
+`build/ulx3s/subsys_ecp5_stat.txt`. It ties `boot_addr_i` to zero
+exactly as the ASIC gate flow does (finding V18): left as a port it
+becomes an async-load flop that `synth_ecp5` refuses to legalise
+("dffs with async set and reset are not supported"). Steps 2–4 have
+not been run here:
 
 ```sh
 # 1. synthesise for ECP5 (slang front end, as the ASIC flow uses)

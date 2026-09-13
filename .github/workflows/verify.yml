@@ -384,8 +384,73 @@ jobs:
           name: coverage-report
           path: build/coverage.txt
 
+  # The fault-injection campaign is its own job, sharded in two.  Inside the
+  # gate/timing job it ran 4 h 29 min at FI_RUNS=2600 -- 269 of the
+  # 360-minute job ceiling (finding 20) -- so a slower runner would time out.
+  # The two halves are independent RTL simulations (no netlist needed):
+  # `fi-random` is the four seeded campaigns FI_RUNS sizes, `fi-sweep` the
+  # five fixed-size systematic sweeps.  Sharding halves the wall time and
+  # keeps a red fault-injection result from hiding a gate-level one.
+  nightly-fi:
+    name: fault injection (${{ matrix.half }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        half: [random, sweep]
+    container:
+      image: hpretl/iic-osic-tools:2026.07
+      options: --user root
+    defaults:
+      run:
+        shell: bash -e {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool environment
+        # The image keeps its tools outside the default PATH and sets them up
+        # from a login profile, which an Actions step's shell never sources.
+        # Without this every step dies with "verilator: command not found".
+        # Sourcing the profile is tried first; if the image has moved things,
+        # fall back to locating each tool and adding its directory.
+        run: |
+          set -e
+          set +u   # the setup script reads variables it does not always set
+          for f in /etc/profile.d/iic-osic-tools-setup.sh /headless/.bashrc; do
+            [ -r "$f" ] && . "$f" >/dev/null 2>&1 || true
+          done
+          set -u
+          for d in /foss/tools/bin /foss/tools/sak /foss/tools/klayout \
+                   /foss/tools/kactus2 /foss/tools/osic-multitool; do
+            [ -d "$d" ] && PATH="$d:$PATH"
+          done
+          for t in verilator iverilog yosys vvp sby verilator_coverage; do
+            command -v "$t" >/dev/null 2>&1 && continue
+            d=$(find / -xdev -name "$t" -type f -perm -u+x 2>/dev/null | head -1)
+            [ -n "$d" ] && PATH="$(dirname "$d"):$PATH"
+          done
+          echo "PATH=$PATH" >> "$GITHUB_ENV"
+          echo "PYTHONPATH=${PYTHONPATH:-}" >> "$GITHUB_ENV"
+          # vvp finds its libvvp.so.1 through this, not through PATH
+          echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "--- resolved ---"
+          for t in verilator iverilog yosys vvp sby verilator_coverage; do
+            printf '%-20s %s\n' "$t" "$(command -v "$t" 2>/dev/null || echo MISSING)"
+          done
+          command -v verilator >/dev/null   # hard gate: the rest is pointless without it
+
+      - name: Fault injection (${{ matrix.half }})
+        run: make fi-${{ matrix.half }} FI_RUNS=2600
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fi-reports-${{ matrix.half }}
+          path: build/fi_campaign*.txt
+
   nightly-deep:
-    name: gate level, timing and fault injection
+    name: gate level and timing
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     container:
@@ -439,9 +504,6 @@ jobs:
 
       - name: Static timing
         run: make sta
-
-      - name: Fault injection, all workloads
-        run: make fi FI_RUNS=2600
 
       - uses: actions/upload-artifact@v4
         if: always()

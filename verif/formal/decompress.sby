@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 ChipDesign B.V.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Decompressor -> decoder, composed.  Both are combinational, so depth 2
+# quantifies over every one of the 2^16 compressed halfwords.  Depth 2,
+# not 1: the properties sit in a clocked block and depth 1 never reaches
+# the clock edge, which passes without checking anything.  Confirm in
+# the log that the engine reached frame 2 and that the property count
+# is non-zero.
+#
+# Run from the repository root:
+#   sby -f -d build/fv_decompress verif/formal/decompress.sby
+#
+# abc (SAT) rather than yices, as for decoder.sby: two wide case trees
+# in series.
+
+[tasks]
+bmc
+
+[options]
+mode bmc
+depth 2
+
+[engines]
+abc bmc3
+
+[script]
+plugin -i slang
+read_slang --top decompress_fv --allow-use-before-declare cdriscv_32s_20_pkg.sv cdriscv_32s_20_decompress.sv cdriscv_32s_20_decoder.sv decompress_fv.sv
+prep -top decompress_fv
+
+[files]
+rtl/core/cdriscv_32s_20_pkg.sv
+rtl/core/cdriscv_32s_20_decompress.sv
+rtl/core/cdriscv_32s_20_decoder.sv
+verif/formal/decompress_fv.sv

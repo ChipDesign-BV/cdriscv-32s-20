@@ -14,8 +14,9 @@
 > co-simulated instructions), O3, O5, O6 (line 100 % with reviewed
 > waivers), O7 (functional 100 % of the current model, toggle ≥ 95 %)
 > and O9 are all measured on this RTL. Eight fault-injection campaigns
-> feed an FMEDA computed on this design — **SPFM 99.50 %, LFM 92.66 %,
-> residual 1.22 FIT** ([fmeda.md](fmeda.md), 2026-09-02) — with two of
+> feed an FMEDA computed on this design — **SPFM 99.51 %, LFM 93.45 %,
+> residual 1.20 FIT** ([fmeda.md](fmeda.md), populations from the
+> final `chip2b` netlist, 2026-09-13) — with two of
 > its findings already fed back into the RTL and re-measured closed
 > (E2E byte-enable fold; config parity over the PMP arrays).
 >
@@ -150,14 +151,20 @@ These are known and unresolved. As of 2026-09-02 the O1–O7 gate of
 this variant's verification plan is met on this repository's runs, so
 the IP **may be used in a project**; the gaps below are the reason it
 remains **not qualified for safety-critical use** — of the O8–O9 gate,
-O9 and the FMEDA are done and O8 (gate level) is open.
+O9 and the FMEDA are done and O8 (gate level) is started but open: the
+final `chip2b` netlist boots with SDF timing at the typ corner
+(2026-09-13); the slow corner and the architectural subset have not
+been run on it.
 
-* The FMEDA exists ([fmeda.md](fmeda.md), computed 2026-09-02 on this
-  variant's campaigns): SPFM 99.50 %, LFM 92.66 %, residual 1.22 FIT —
-  **under assumed failure rates**. The gap that remains is the data,
-  not the analysis: foundry FIT figures, a mission profile, and
-  common-cause analysis for the lockstep pair, per the handoff
-  checklist in that document.
+* The FMEDA exists ([fmeda.md](fmeda.md), computed on this variant's
+  campaigns, populations refreshed from the final `chip2b` netlist
+  2026-09-13): SPFM 99.51 %, LFM 93.45 %, residual 1.20 FIT — **under
+  assumed failure rates**. The gap that remains is the data, not the
+  analysis: foundry FIT figures, a mission profile, and common-cause
+  analysis for the lockstep pair, per the handoff checklist in that
+  document — plus one measurement, a directed fault sweep of the QSPI
+  loader, whose row is currently argued and alone can move LFM across
+  the ASIL D line (87.22 % with the argument discarded).
 * **Diagnostic latency is measured per campaign on this variant**
   (`build/fi_campaign*.txt`): median 2 cycles over the detected runs of
   the trap and memory workloads, with the slow tail owned by memory ECC

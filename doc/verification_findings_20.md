@@ -1049,3 +1049,246 @@ from it is wrong, and is recorded here so it is not repeated. (2) At
 269 of the job's 360-minute ceiling the margin is real but not large —
 a slower runner or a longer fault list would time out. Not a failure; a
 number to watch.
+
+**Closure (2026-09-13).** The first *scheduled* nightly on the fixed
+tree — run #68, the real unattended trigger, not a manual dispatch —
+completed **success** end to end, `make fi` included. That step took
+**5 h 13 min: 313 of the 360-minute ceiling**, 44 minutes longer than
+the dispatched #66 on the same commit, so the margin was not a number
+to watch but a timeout waiting to happen. The campaign is therefore
+split into two parallel shards, `fi-random` (the four seeded campaigns
+`FI_RUNS` sizes) and `fi-sweep` (the five fixed-size sweeps), as their
+own `nightly-fi` matrix job; `nightly-deep` keeps gate and timing. Two
+smaller items closed with it: the `gate-subsys` synth rule now ties
+`boot_addr_i` to a constant as the STA and `_pd` rules already did
+(V18), so the bare `$_ALDFFE_PNP_` — "Area for cell type … is unknown"
+in every subsystem synth log, a cell with no library model in the
+netlist step 5 simulates — is gone (0 in the log; the four gate
+programs pass with cycle counts unchanged); and the objectives that
+cost nothing to re-run were re-run on HEAD: `riscof` **143 of 143**
+(O1), and the exhaustive 2³² decoder proof `formal-dec` **PASS** on
+this variant's decoder — which corrects the README's "formal: not
+re-run" row: the proof binds `cdriscv_32s_20_decoder` and checks the
+DUT's own `illegal` flag, so it is valid for this decoder regardless of
+its ISA set. What it does not cover — the compressed-instruction
+decompressor in front of it — is addressed in finding 21.
+
+## 21. Closing what §20 left open: the decompressor, the loader's coverage, the FMEDA's populations, and O8 (2026-09-13)
+
+Finding 20 ended with the objectives that cost nothing to re-run
+re-run. This one is the rest of "everything except RTL2GDS": the gap
+the decoder proof does not cover, the coverage number brought back
+above the criterion by stimulus rather than by waiver, the FMEDA
+populations moved onto the final netlist, and the gate-level
+simulation (O8) that the README has carried as "not done" since the
+fork.
+
+### The proof the README was wrong to call superseded, and the one it was right to say was missing
+
+`formal-dec` binds `cdriscv_32s_20_decoder` and asserts, over all 2³²
+encodings, that anything the DUT's own `illegal` flag rejects has no
+architectural effect. It never depended on the ISA set — a wider
+decoder simply rejects fewer words — so "superseded, that proof was of
+variant 1's decoder" was wrong in the safe direction: it discarded
+evidence that was valid. Re-run on HEAD: **PASS**.
+
+What that proof does *not* see is the block in front of the decoder.
+`p_only_32bit` in `decoder_fv.sv` rests on compression being handled
+before the decoder, by `cdriscv_32s_20_decompress`, which the variant-1
+proof never had to consider because variant 1 had no C extension. A
+decompressor that expanded a rejected halfword into a *legal* 32-bit
+word would pass the decoder proof and execute a phantom instruction.
+`verif/formal/decompress_fv.sv` + `decompress.sby` close that:
+`decompress → decoder` composed in series exactly as `if_align` wires
+them, both combinational, so a depth-2 BMC (depth 2, not 1: the
+properties sit in a clocked block and depth 1 never reaches the edge —
+it passes without checking anything) quantifies over every one of the
+2¹⁶ halfwords. **49 assertions, no assumes** — nothing in the
+decompressor's contract restricts its input, `if_align` feeds it every
+halfword it sees, so an assume would have made the proof weaker than
+the RTL's exposure. Three groups:
+
+1. *Composed illegal-has-no-effect.* If the decompressor rejects the
+   halfword, or flags it as a Zcmp sequence (which it does not expand),
+   or the decoder rejects the expansion: no LSU, mult/div, branch,
+   jump, CSR or system side effect, and no register write except to
+   x0. That allowance is stated, not hidden — the decompressor's
+   contract is that anything it does not expand comes out as
+   `addi x0,x0,0`, which the decoder decodes with `rf_we=1, rd=0`;
+   `p_rejected_is_nop` pins the nop itself so the allowance cannot
+   widen.
+2. *Consistency.* Everything the decompressor calls legal (and every
+   Zcmp nop) is a 32-bit encoding the decoder does **not** flag, so the
+   only illegal-instruction source for a compressed word is the
+   decompressor's own flag and `mtval` (the raw halfword) is always the
+   right one.
+3. *Mapping pins.* 36 `p_map_*` assertions write out, field by field
+   from the specification's RV32C and Zcb bit tables — not copied from
+   the RTL — the expansions of c.addi, c.addi4spn, c.lw, c.lwsp,
+   c.swsp, c.jal, c.j, c.beqz, c.jr, c.ebreak and Zcb c.lbu, c.not,
+   c.sext.b, c.mul, plus the reserved forms (the RV64-only shift
+   encodings, c.zext.w, `c.addi4spn` with a zero immediate, `c.jr x0`,
+   `c.lwsp x0`) that must be *rejected*. Quadrant 3 — bits `[1:0] ==
+   2'b11`, not a compressed instruction at all, yet presented to the
+   decompressor unconditionally by the aligner — is asserted illegal,
+   not assumed away.
+
+**PASS**, abc bmc3, frame 2 reached, 49 properties (`PI/PO/Reg =
+113/49/55`). The harness was mutation-checked before the PASS was
+believed: swapping `off[11]` and `off[10]` in the *expected* CJ form
+makes it **FAIL** at `p_map_c_j_form` with a counterexample, so a wrong
+mapping is caught and the PASS is not vacuous. No RVC defect was found
+and no property was weakened. `formal-decompress` is now in the
+`formal` umbrella.
+
+### Coverage: back above the criterion by stimulus, not by waiver
+
+The re-baseline on HEAD first reported toggle **94.9 %** — below the
+≥ 95 % sub-criterion that read 96.3 % on 2026-09-02. The cause was not
+a design change but a denominator one: with the QSPI loader in the RTL
+and every coverage bench built at `BootEnable=0`, the loader's ports,
+the boot multiplexer and the safety controller's `boot_done` /
+`boot_fault` inputs are constant nets that no stimulus can toggle
+(786 of 816 → 786 of 828). A waiver would have been the easy answer
+and the wrong one; the fix was a bench that exercises them.
+
+* `tb_cdriscv_boot` (`BootEnable=1`, the flash model on the QSPI port)
+  joined the coverage merge as `tb_boot_cov`, 1-bit and quad images:
+  toggle 95.2 %.
+* Verilator 5.050's `--coverage` **crashes** building that bench —
+  `Internal Error: V3FsmDetect.cpp:1065: Empty reset branch
+  unexpectedly survived to FSM detection` on
+  `spi_norflash_model.sv:105`, the flash model's `always @(posedge
+  sclk_i)` state machine. `--coverage` is the union of line, toggle,
+  user *and* the FSM/state pass that crashes; the report reads only
+  the first three, so the bench is built with `--coverage-line
+  --coverage-toggle --coverage-user` and loses nothing the metric
+  uses. Recorded here so the next person does not "fix" the flash
+  model to please the tool.
+* A clean boot cannot reach the loader's retry and fault paths
+  (`boot_fault`, `retries_q`, `fail_w`, the `S_FAULT` arm, the safety
+  controller's boot inputs), so both images are also run `+CORRUPT`,
+  judged by the same `PASS corrupt-image` line as `bootsim-fault`:
+  toggle 95.9 % (827 of 862), line 95.6 % (585 of 612).
+* That run left **four** loader lines uncovered beyond the 23 reviewed
+  waivers. Two — `div_q <= div_q + 1` (363–364) — are the SPI clock
+  divider's count-up branch, dead at the chip's `BootSclkDiv=2` because
+  `spi_edge` fires on every run cycle. Reachable in a `/4` build, so
+  the bench took a `BootSclkDiv` parameter and the flow builds a second
+  binary with `-GBootSclkDiv=4` (boot_done at cycle 21 724 against
+  11 036 at `/2`, exactly the halved SPI clock; the Icarus `bootsim`
+  is unchanged). The other two — `default: state_q <= S_IDLE` (520) and
+  the `default: ;` of the SPI-fall phase case (400) — are W2a-shape
+  upset-recovery arms: 3-bit enums with 7 of 8 values used, and the
+  two phase members absent from the case are exactly the ones in which
+  `spi_fall` is false. Waived under W2a with that argument. The
+  waiver file's W2a/W2b/W4 line numbers, three to seven lines stale
+  since the loader entered the tree, were re-derived from the fresh
+  annotated database at the same time — a waiver list that no longer
+  points at the lines it waives is the reconciliation failure the
+  file itself warns about.
+
+### FMEDA: populations from the netlist that was actually taped
+
+The 2026-09-02 FMEDA counted the `v2full` subsystem netlist and stood
+in RTL-elaborated flop counts for the blocks that post-dated it — the
+CLINT, the E2E endpoints, the Zcmp sequencer — and did not count the
+QSPI loader at all, which did not yet exist. `scripts/fmeda.py` now
+reads `flow/runs/chip2b/final/pnl/cdriscv_32s_20_chip.pnl.v` directly
+(`--netlist` re-derives every row and fails on drift): **7 538 placed
+flip-flops**, the same figure as that run's `metrics.json`
+`sequential_cell`, 6 915 attributed per block by Q-net name and 623
+synthesis-renamed nets in the unattributed row, the sum asserted
+against the placed count. Nothing is RTL-elaborated any more. Result:
+**SPFM 99.51 %, LFM 93.45 %, residual 1.20 FIT** (was 99.50 / 92.66 /
+1.22) — the movement is small because the ratios are insensitive to
+population scale and the diagnostic coverages are unchanged; the point
+of the refresh is provenance, not the second decimal.
+
+What the refresh exposed, and what is deliberately *not* hidden in
+the headline: the loader is 534 flops on a **row that is argued, not
+swept** (cold-reset-only bus master parked behind `boot_done` in
+mission; header validation before any write; one CRC32 over both
+payloads; sticky `boot_fault` after `BootRetryMax`). Carried at safe
+0.85 / dc 0.90 it contributes the figures above. Re-computed at the
+unattributed row's figures it is SPFM 99.47 / LFM 92.48; with the
+argument **discarded** (safe 0, dc 0.50) it is SPFM 99.27 / **LFM
+87.22 %** — below the ASIL D line. It is the one row whose figures can
+move a metric across a threshold, which makes a directed loader sweep
+(the residual to look for: an address-register upset *after*
+validation, landing a CRC-correct payload at the wrong offset) the
+next measurement rather than a formality. Also left where the netlist
+put it: the CLINT's `mtimecmp`/`msip` registers have no named Q-net
+after synthesis and sit in the unattributed row.
+
+**Result (run of 2026-09-13, 34 databases merged):** line **96.0 %
+measured, 598 of 623 — 100 % with 25 reviewed waivers**; the 25
+uncovered lines reconcile one-for-one against W2a (9), W2b (12) and W4
+(4) with nothing left over. Toggle **96.1 %** (838 of 872), functional
+**100 %, 92 of 92**. Against 2026-09-02 (96.1 / 23 waived / 96.3) the
+measured line figure is a tenth lower and the toggle two tenths lower
+on a denominator that grew by 39 lines and 44 toggle lines — the
+loader's — which is the honest direction: more design under the
+metric, not less.
+
+### O8 on the netlist that was actually hardened
+
+Every earlier gate-level result in this repository is on a yosys
+netlist of the subsystem — `gate-subsys`, `gate-sdf`, `gate-arch` on
+`v2full`'s placed netlist — never on `chip2b`, the flat post-route chip
+with its 105 pads and six SRAM macros that the physical signoff
+describes. `verif/gate/gate_chip.mk` (included from the Makefile) and
+`verif/gate/tb_sdf_chip.sv` close that: the chip netlist
+(`flow/runs/chip2b/final/nl`, 335 518 instances) compiled with the
+cell models' specify blocks kept, the IO cells, the SRAM macros
+`-DFUNCTIONAL`, and the flash model on the QSPI pads; the bench boots
+the same images `bootsim` boots at RTL and judges by the same exit
+register write. `scripts/sdf_chip_filter.py` prepares OpenSTA's SDF
+for Icarus, and what it has to remove is the finding:
+
+* **INTERCONNECT.** Icarus's annotator aborts (`NULL handle passed to
+  vpi_scan`, SIGABRT) on an entry whose end is a top-level port bit —
+  the 93 port-to-pad wires. Keeping the other 285 652 cell-to-cell
+  entries aborted identically, 29 minutes into the read, on both boot
+  images; so, as in the subsystem flow, all of them go. The routed
+  wire delays are OpenSTA's job on the same data (the `chip2b` signoff:
+  setup +0.040 ns slow); what the simulation carries is every cell
+  IOPATH.
+* **The six SRAM macro CELL blocks.** The flat netlist keeps the
+  macros' hierarchical names as escaped identifiers
+  (`\u_sub.u_dtcm.g_bank[0].u_bank`), OpenSTA writes them
+  `u_sub\.u_dtcm\.…`, and Icarus splits that on the dots ("Cannot find
+  u_sub in scope") then rejects the `A_DOUT[0]` bit-select port specs.
+  Eleven errors and it declares the **whole DELAYFILE invalid** — zero
+  annotation, and the run then printed nothing at all, not even a
+  verdict, for 59 minutes. A run that annotates nothing and passes
+  would have looked like O8; this one was caught because it reported
+  no result and a missing result is not a pass. The macros have no
+  specify block under `-DFUNCTIONAL`, so the blocks could never have
+  annotated; dropped whole.
+* The chip-top CELL, empty once its wires are gone, and the header's
+  `1.200::1.200` triples — cosmetic, but each produced an "error" that
+  would have hidden a real one.
+
+Every removal is counted in the filter's output (93 + 285 652
+INTERCONNECT, 6 macro blocks / 2 460 lines, 1 empty block, 3 header
+triples; 1 252 488 lines and 90 317 cell blocks kept). Icarus also
+warns 7 538 times that `TIMINGCHECK` is not supported: it applies no
+SDF setup/hold limits, and the cell models' own `$setuphold` are
+zero-limit, so **this simulation checks function under annotated cell
+delays and does not check timing margins** — those are OpenSTA's,
+stated here so the PASS is read for what it is.
+
+**Result, typ corner (`nom_typ_1p20V_25C`):** 1-bit boot **PASS after
+11 334 cycles, boot_done at 11 035**; quad boot **PASS after 3 726
+cycles, boot_done at 3 427** — cycle-for-cycle what the RTL bench and
+the zero-delay netlist run report (RTL: 11 334 / 11 036; the one-cycle
+difference is the pad path). 61 minutes wall and 1.65 GB each, of
+which the annotation read is ~55 minutes — the simulation itself runs
+at about 47 cycles/s, so the cost of a chip-level gate run is the SDF,
+not the cycles. **Not yet on this netlist:** the slow corner
+(`CHIP_CORNER=nom_slow_1p08V_125C`, the signoff corner) and the
+12-test architectural subset (`gate-chip-arch`, each test packed into
+a quad flash image, booted through the loader, signature compared
+word-for-word with Spike's). Both are set up and will be recorded here
+when they have run; until then O8 is started, not met.

@@ -13,13 +13,17 @@
 > 2026-09-04, **O1–O7 and O9 are met in this repository** on this
 > variant's own runs: 143 of 143 architectural tests, 1 015 480 871
 > co-simulated instructions against the final revision `2ecf4b2`, line
-> 96.1 % / 100 % waived, toggle 96.3 %, functional 92 of 92, eight
-> fault-injection campaigns, and an FMEDA (SPFM 99.50 % / LFM 92.66 %
-> on assumed rates, [fmeda.md](fmeda.md)). The physical implementation
+> 96.0 % / 100 % waived, toggle 96.1 %, functional 92 of 92 (2026-09-13
+> re-baseline with the loader in the tree), eight
+> fault-injection campaigns, and an FMEDA (SPFM 99.51 % / LFM 93.45 %
+> on assumed rates, populations from the final `chip2b` netlist,
+> [fmeda.md](fmeda.md)). The physical implementation
 > is timing-closed at chip level ([chip.md](chip.md)). **O8 —
-> gate-level simulation — is not re-run** and awaits work on the final
-> `chip2b` netlist. Read every "**met**" in the table below as *met by
-> variant 1*.
+> gate-level simulation — is started, not met**: the final `chip2b`
+> post-route netlist boots through the pads with SDF cell delays at
+> the typ corner (2026-09-13, `gate-chip-sdf`, findings §21); the slow
+> corner and the architectural subset on that netlist are still to
+> run. Read every "**met**" in the table below as *met by variant 1*.
 
 > **Variant 1 status, 2026-08-25: every objective O1–O9 is met** — see the
 > objective table below for each criterion's result, the README for

@@ -7,14 +7,16 @@
 # Everything in this file is one of exactly three kinds of number, and
 # each row of the tables says which:
 #
-#   MEASURED  -- element populations counted from the v2full placed
-#                netlist's flip-flop Q-nets
-#                (flow/runs/v2full/final/pnl/*.pnl.v: 6 647 DFFs,
-#                231 920 instances, 153 622 standard cells, 6 SRAM
-#                macros, die 3.630 mm^2 -- all re-read from that run's
-#                metrics.json, not quoted from memory), plus RTL
-#                elaboration for the three blocks the netlist predates
-#                (see the provenance note below); and diagnostic
+#   MEASURED  -- element populations counted from the FINAL chip2b
+#                placed netlist's flip-flop Q-nets
+#                (flow/runs/chip2b/final/pnl/cdriscv_32s_20_chip.pnl.v:
+#                7 538 sg13g2_dfrbpq_1 -- the only sequential cell in
+#                the netlist, and the same 7 538 that run's
+#                metrics.json reports as
+#                design__instance__count__class:sequential_cell;
+#                335 518 instances, 172 368 standard cells, 6 SRAM
+#                macros, 312 pad cells -- all re-read from that
+#                metrics.json, not quoted from memory); and diagnostic
 #                coverage from THIS variant's fault-injection campaigns
 #                (build/fi_campaign*.txt, 2026-09-02/04: workloads A-D
 #                re-run on this RTL plus the E2E / CLINT / PMP / Zcmp /
@@ -25,17 +27,34 @@
 #                part a real safety case MUST replace.
 #   DERIVED   -- everything computed from the above.
 #
-# PROVENANCE NOTE (population basis).  The v2full hardening run
-# finished 2026-08-30; the implementation phase closed 2026-08-31 with
-# the CLINT, the E2E link endpoints and the Zcmp sequencer.  Those
-# three therefore do not exist in the placed netlist and their
-# flip-flop counts here come from per-module RTL elaboration
-# (yosys+slang, proc/opt_clean/simplemap, $_*DFF_ bits).  RTL counts
-# are pre-pruning and err conservative (high).  The PMP CSR arrays ARE
-# in the netlist (flattened as core-local pmp_cfg/pmp_addr nets) and
-# are counted from it.  The die has NOT been re-hardened since; the
-# area and instance totals below are the last physical facts available
-# and the FMEDA must be re-run after the next harden.
+# PROVENANCE NOTE (population basis).  Populations were refreshed on
+# 2026-09-13 from the final chip2b harden (2026-09-07), which placed
+# EVERY block of the subsystem: the CLINT, the E2E link endpoints and
+# the Zcmp sequencer (RTL-elaborated stand-ins in the 2026-09-02
+# edition, which counted the 2026-08-30 v2full netlist that predated
+# them), the QSPI boot loader (new row) and the JTAG/debug blocks.
+# Nothing is RTL-counted any more.  The pad ring adds no flip-flops,
+# so the chip netlist's 7 538 DFFs are the subsystem's placed
+# population.
+#
+# Method (the flat netlist keeps the RTL hierarchy in its Q-net
+# names): every `sg13g2_dfrbpq_1` instance is taken with its .Q net,
+# the bit index is stripped, and the net is assigned to exactly ONE
+# row by the first matching prefix rule in ATTRIBUTION below -- the
+# same rules `--netlist` re-applies to prove the table.  Q-nets that
+# synthesis renamed to `_NNN_` cannot be attributed and form the
+# "unattributed" row (they include, e.g., the CLINT's mtimecmp/msip
+# registers, which have no named Q-net in this netlist).  The sum of
+# the rows is asserted equal to TOTAL_FF_NETLIST at import, so a
+# future edit that moves flops without closing the balance fails
+# instead of passing silently.
+#
+# Reproduce the raw count and the per-row split outside the script:
+#   grep -c '^ sg13g2_dfrbpq_1 ' <pnl.v>                       -> 7538
+#   awk '/^ sg13g2_dfrbpq_1 /{f=1} f && /\.Q\(/{sub(/.*\.Q\(/,"");
+#        sub(/\).*$/,""); sub(/^\\/,""); sub(/ $/,""); print; f=0}' \
+#        <pnl.v> > q.txt ; wc -l q.txt                          -> 7538
+#   python3 scripts/fmeda.py --netlist <pnl.v>   (per-row recount)
 #
 # Metrics follow the ISO 26262 definitions:
 #   SPFM = 1 - sum(lambda_SPF) / sum(lambda_safety_related)
@@ -50,6 +69,11 @@
 # measured exactly which upsets lockstep can and cannot see.
 
 import argparse
+import collections
+import re
+import sys
+
+DATE = "2026-09-13"      # date of this edition (population refresh)
 
 # ----------------------------------------------------------------- ASSUMED
 # Soft-error rates, 130 nm-class, sea level, typical literature values.
@@ -73,17 +97,44 @@ MBU_FRACTION = 0.02
 
 # ----------------------------------------------------------------- MEASURED
 SRAM_BITS   = 2 * 4096 * 39          # two TCMs, logical bits
-TOTAL_CELLS = 153622                  # v2full stdcells (74 357 antenna)
-TOTAL_INSTANCES = 231920              # incl. fill and 6 SRAM macros
-TOTAL_FF_NETLIST = 6647               # placed dfrbpq_1 count
-# RTL-elaborated additions the netlist predates (err conservative):
-FF_CLINT     = 197                    # clint 163 + clint_obi 34
-FF_E2E       = 134                    # 2x link_m (34) + 2x link_s (33)
-FF_ZCMP_SEQ  = 12                     # seq_idx+pend (5) + state bit, x2
-TOTAL_FF     = TOTAL_FF_NETLIST + FF_CLINT + FF_E2E + FF_ZCMP_SEQ
+NETLIST = "flow/runs/chip2b/final/pnl/cdriscv_32s_20_chip.pnl.v"
+TOTAL_CELLS = 172368                  # chip2b stdcells (81 599 antenna)
+TOTAL_INSTANCES = 335518              # incl. fill, 6 SRAM macros, 312 pads
+TOTAL_FF_NETLIST = 7538               # placed dfrbpq_1 count, chip2b
+TOTAL_FF     = TOTAL_FF_NETLIST       # nothing is RTL-counted any more
+
+# Q-net -> row attribution, first match wins (bit index already
+# stripped).  A Q-net is named after the RTL register it implements
+# or, where the register directly drives a wire of an enclosing
+# module, after that wire (e.g. `u_sub.clint_rdata` is the CLINT
+# adapter's read-data register, `u_sub.bt_addr` the loader's bus
+# address register, `dac_data_o_core` the AMS interface's output
+# register at chip level).  The rules follow the RTL instance tree of
+# rtl/cdriscv_32s_20_subsys.sv.
+ATTRIBUTION = [
+    ("unattributed (renamed)",   r"^_\d+_$"),
+    ("PMP arrays (both cores)",  r"^u_sub\.g_lockstep\.u_core\.u_core_(main|check)\.pmp_(addr|cfg)$"),
+    ("Zcmp sequencer",           r"^u_sub\.g_lockstep\.u_core\.u_core_(main|check)\.(seq_idx_q|seq_pend_q|seq_active)$"),
+    ("core pair (lockstep)",     r"^u_sub\.g_lockstep\.u_core\.u_core_(main|check)\."),
+    ("lockstep delay+compare",   r"^u_sub\.g_lockstep\."),
+    ("TCM control+ECC logic",    r"^u_sub\.u_[id]tcm\."),
+    ("E2E link endpoints",       r"^u_sub\.u_e2e_"),
+    ("safety controller",        r"^u_sub\.u_safety\."),
+    ("watchdog",                 r"^u_sub\.u_wdog\."),
+    ("clock monitor",            r"^u_sub\.u_clkmon\."),
+    ("interrupt controller",     r"^u_sub\.u_irq_ctrl\."),
+    ("APB timer",                r"^u_sub\.u_timer\."),
+    ("CLINT mtime (no parity)",  r"^u_sub\.u_clint\.mtime_q$"),
+    ("CLINT config+adapter",     r"^u_sub\.(u_clint\.|clint_)"),
+    ("AMS interface",            r"^(u_sub\.u_ams\.|(adc_ch|dac_data|dac_we|atest_en|atest_sel)_o_core$)"),
+    ("memory BIST (x2)",         r"^u_sub\.u_mbist_[id]\."),
+    ("JTAG/debug observation",   r"^u_sub\.(u_dbg_win\.|u_jtag_tap\.|u_dbg_bridge\.|jtag_dbg_|dbg_acc_addr$|dbg_busy$)"),
+    ("QSPI boot loader",         r"^(u_sub\.(g_boot\.|bt_|boot_)|qspi_sclk_o_core$)"),
+    ("bus + sync + APB glue",    r"^(u_sub\.|core_sleep_o_core$)"),
+]
 
 # Flip-flop populations per functional element, counted from the placed
-# netlist's Q-net names except where marked RTL.  "dc_*" are the
+# netlist's Q-net names by the rules above.  "dc_*" are the
 # measured diagnostic coverages: dc_seu for single-bit upsets (this
 # variant's campaigns), dc_mbu for the multi-bit fraction, dc_perm for
 # permanent faults (mechanism-based argument).  safe_frac is the
@@ -96,13 +147,13 @@ TOTAL_FF     = TOTAL_FF_NETLIST + FF_CLINT + FF_E2E + FF_ZCMP_SEQ
 # rows are structural arguments rather than sweeps.
 ELEMENTS = [
     # name,                 ffs,  safe, dc_seu, dc_mbu, dc_perm, mechanism
-    ("core pair (lockstep)", 3386, 0.45, 0.99,  0.99,  0.99,
+    ("core pair (lockstep)", 3382, 0.45, 0.99,  0.99,  0.99,
      "DCLS; this variant's campaigns A-D: 1156 usable injections into core "
      "state, 0 SDC with status clean, every non-masked upset latched "
-     "(lockstep median 2 cycles).  Includes multdiv's dead multiply "
-     "arm (finding s17/W5): structurally unreachable in-system, its "
-     "faults are safe, and it has no functional observer -- kept "
-     "inside the 0.45 safe fraction, not credited as covered"),
+     "(lockstep median 2 cycles).  multdiv's dead multiply arm "
+     "(finding s17/W5) is GONE from this netlist -- the RTL deleted it "
+     "2026-09-02 and chip2b was hardened after; the 0.45 safe fraction "
+     "is the campaigns' masked/overwritten share, nothing structural"),
     ("lockstep delay+compare", 555, 0.10, 0.90,  0.90,  0.90,
      "self-checking by construction (a delay-line upset causes a "
      "mismatch; target 19 re-measured on this RTL); residual: faults "
@@ -118,7 +169,7 @@ ELEMENTS = [
     ("TCM control+ECC logic",  108, 0.30, 0.95,  0.95,  0.95,
      "ECC datapath faults surface as detected errors or bus faults; "
      "BIST covers permanent"),
-    ("E2E link endpoints (RTL)", 134, 0.10, 0.90,  0.90,  0.90,
+    ("E2E link endpoints",      144, 0.10, 0.90,  0.90,  0.90,
      "self-evidencing like the comparator: a corrupted held address or "
      "check-bit register mismatches the next beat it qualifies "
      "(block-e2e-link, 11 286 checks, mutants 8/8).  The LINK WIRES "
@@ -126,7 +177,7 @@ ELEMENTS = [
      "as FLT_E2E, 0 escapes; the byte-enable wires are outside the "
      "fold and escaped 32/32 times -- carried as interconnect "
      "residual, not as endpoint coverage"),
-    ("safety controller",      196, 0.05, 0.999, 0.90,  0.90,
+    ("safety controller",      197, 0.05, 0.999, 0.90,  0.90,
      "config parity, ungated (re-measured: targets 9-13 all detected); "
      "sticky status self-evidencing; residual: reaction wiring"),
     ("watchdog",                 9, 0.05, 0.999, 0.90,  0.90,
@@ -134,14 +185,17 @@ ELEMENTS = [
      "fires or never fires -- external pin protocol catches both)"),
     ("clock monitor",          149, 0.10, 0.999, 0.90,  0.85,
      "config parity; ref-domain copies reload each heartbeat"),
-    ("interrupt controller",    97, 0.20, 0.999, 0.90,  0.90,
+    ("interrupt controller",   103, 0.20, 0.999, 0.90,  0.90,
      "config parity on ENABLE/MODE; pending is dynamic"),
     ("APB timer",               97, 0.30, 0.999, 0.90,  0.90,
      "config parity on MTIMECMP/CTRL; no longer the MTIP source"),
-    ("CLINT config+adapter (RTL)", 133, 0.05, 0.999, 0.90,  0.90,
+    ("CLINT config+adapter",     67, 0.05, 0.999, 0.90,  0.90,
      "mtimecmp/msip/prescaler in the CLINT's own cfg-parity fold; "
      "fi-clint sweep: every mtimecmp/msip/prescaler upset latched "
-     "FLT_CFG_PAR (median 2 cycles)"),
+     "FLT_CFG_PAR (median 2 cycles).  Placed count: prescaler 32 + "
+     "parity 1 + OBI adapter 34 (clint_rdata/rvalid/err); the "
+     "mtimecmp/msip registers have no named Q-net in chip2b and sit "
+     "in the unattributed row"),
     ("CLINT mtime (no parity)",  64, 0.42, 0.00,  0.00,  0.70,
      "UNDETECTED BY DESIGN: mtime is hardware-updated and correctly "
      "outside the parity fold.  fi-clint sweep: 0/192 detected; the "
@@ -152,13 +206,19 @@ ELEMENTS = [
      "period.  That bound applies at system level (AoU: watchdog "
      "armed), so it is credited only in dc_perm (a stuck mtime stops "
      "all service), never for one-shot SEU"),
-    ("AMS interface",          344, 0.30, 0.999, 0.90,  0.85,
-     "config parity incl. limits and mask; results dynamic"),
+    ("AMS interface",          365, 0.30, 0.999, 0.90,  0.85,
+     "config parity incl. limits and mask; results dynamic.  Includes "
+     "the 21 output registers named after the chip-level pad wires "
+     "(dac_data/dac_we/adc_ch/atest_*_o_core)"),
     ("memory BIST (x2)",       118, 0.60, 0.50,  0.50,  0.70,
      "dormant in mission; faults surface at next BIST run -- "
      "detected late, so counted mostly latent for SEU"),
-    ("bus + sync + APB glue",   83, 0.05, 0.95,  0.95,  0.95,
-     "bus errors trap; reset-sync faults are fail-stop"),
+    ("bus + sync + APB glue",  128, 0.05, 0.95,  0.95,  0.95,
+     "bus errors trap; reset-sync faults are fail-stop.  Every "
+     "subsystem-level Q-net no block rule claims: external APB "
+     "registers (44), peripheral/TCM read-data and response registers, "
+     "BIST address/done/fail, reset synchronisers, warm-reset counter, "
+     "fault flags, core_sleep"),
     ("JTAG/debug observation", 275, 0.90, 0.00,  0.00,  0.50,
      "read-only window by construction: bridge and window can reach "
      "nothing but their own registers, the TAP is held in reset while "
@@ -166,18 +226,46 @@ ELEMENTS = [
      "silent-ok, core untouched.  The residual 10 % covers wrong "
      "OBSERVATIONS handed to a debugger; nothing here can corrupt the "
      "mission, which is why safe is 0.90 and dc_seu is honestly 0"),
-    ("Zcmp sequencer (RTL)",    12, 0.00, 0.99,  0.99,  0.99,
+    ("QSPI boot loader",       534, 0.85, 0.90,  0.90,  0.90,
+     "NOT SWEPT by any campaign -- argued figures (two digits).  "
+     "Active only from cold reset to boot_done, then a dormant bus "
+     "slave parked off the data-master mux; its state is rebuilt from "
+     "reset at the next cold start, so a mission-time upset in it "
+     "cannot reach the core (safe share), except boot_done/boot_fault "
+     "themselves, whose flip stalls the fetch enable -- fail-stop, "
+     "watchdog-visible.  During the load, header validation before "
+     "any write and one CRC32 over both payloads turn a corrupted beat "
+     "into a retry (BootRetryMax=3) and, exhausted, a sticky "
+     "boot_fault with the core never released; the residual is an "
+     "address/segment register upset AFTER validation, which places a "
+     "CRC-correct payload at the wrong TCM offset.  Permanent: the "
+     "same retry-then-boot_fault path.  Population: g_boot 463 + "
+     "bt_addr/bt_wdata 64 + boot_retries 4 + boot_done/boot_fault 2 + "
+     "qspi_sclk_o_core 1"),
+    ("Zcmp sequencer",          12, 0.00, 0.99,  0.99,  0.99,
      "fi-zcmp sweep, deposits mid-sequence in one core: lockstep "
      "caught every landed upset (median 12 cycles); the checker walks "
      "the intact sequence so a corrupted beat cannot agree"),
-    ("unattributed (renamed)", 622, 0.10, 0.90,  0.90,  0.90,
+    ("unattributed (renamed)", 623, 0.10, 0.90,  0.90,  0.90,
      "placed FFs whose Q-nets synthesis renamed (_NNN_); they belong "
-     "to the blocks above but cannot be attributed by name.  Given a "
+     "to the blocks above (the CLINT's mtimecmp/msip among them) but "
+     "cannot be attributed by name.  Given a "
      "flat conservative 0.90 -- BELOW the population-weighted average "
      "of the named rows -- rather than silently inheriting the best "
      "row.  Variant 1 left its unattributed flops out of the transient "
      "sum entirely; this row closes that quiet optimism"),
 ]
+
+# Reconciliation: attributed + unattributed == placed.  A row edit that
+# moves flops without closing the balance fails here, not silently.
+_FF_SUM = sum(e[1] for e in ELEMENTS)
+assert _FF_SUM == TOTAL_FF_NETLIST, (
+    "ELEMENTS sum to %d flip-flops but the placed netlist holds %d "
+    "(TOTAL_FF_NETLIST); re-run --netlist and fix the table"
+    % (_FF_SUM, TOTAL_FF_NETLIST))
+assert set(n for n, _ in ATTRIBUTION) == set(e[0] for e in ELEMENTS), \
+    "ATTRIBUTION rules and ELEMENTS rows name different elements"
+UNATTRIBUTED = next(e[1] for e in ELEMENTS if e[0].startswith("unattributed"))
 
 SRAM = ("TCM arrays (SEC-DED)", SRAM_BITS, 0.40, 0.996, 0.996, 0.996,
         "Hsiao SEC-DED corrects 1, detects 2; campaigns re-run on this "
@@ -193,7 +281,11 @@ def fit_ff(n):    return n * SEU_FF_FIT_PER_MBIT / MBIT
 def fit_sram(n):  return n * SEU_SRAM_FIT_PER_MBIT / MBIT
 
 
-def compute():
+def compute(overrides=None):
+    """overrides: {row name: (safe, dc_seu, dc_mbu, dc_perm)} to
+    re-evaluate the metrics with one row's argued figures replaced --
+    used for the sensitivity statement, never for the headline."""
+    overrides = overrides or {}
     rows = []
     tot = dict(lam=0.0, safe=0.0, spf=0.0)
 
@@ -224,6 +316,8 @@ def compute():
     # logic elements share the other half by flop count (ASSUMED)
     perm_logic = PERM_FIT_TOTAL * 0.5
     for (name, ffs, safe, dcs, dcm, dcp, mech) in ELEMENTS:
+        if name in overrides:
+            safe, dcs, dcm, dcp = overrides[name]
         add(name, fit_ff(ffs), safe, dcs, dcm, mech,
             perm_logic * ffs / TOTAL_FF, dcp)
 
@@ -239,7 +333,7 @@ def compute():
 def result_text():
     rows, lam, safe, spf, spfm, lfm, lat_mech, lam_mech = compute()
     out = []
-    out.append("cdriscv-32s-20 FMEDA -- computed 2026-09-02")
+    out.append("cdriscv-32s-20 FMEDA -- computed %s" % DATE)
     out.append("ASSUMED rates: SRAM %.0f FIT/Mbit, FF %.0f FIT/Mbit, "
                "permanent %.1f FIT total"
                % (SEU_SRAM_FIT_PER_MBIT, SEU_FF_FIT_PER_MBIT,
@@ -247,9 +341,10 @@ def result_text():
     out.append("  (permanent = assumed %.0f FIT per 2.6 mm^2, scaled to "
                "the measured %.3f mm^2 die), MBU fraction %.0f%%"
                % (PERM_FIT_BASE, DIE_MM2, MBU_FRACTION * 100))
-    out.append("Populations: %d placed FFs + %d RTL-counted (CLINT/E2E/"
-               "Zcmp postdate the v2full harden),"
-               % (TOTAL_FF_NETLIST, FF_CLINT + FF_E2E + FF_ZCMP_SEQ))
+    out.append("Populations: %d placed FFs (chip2b final netlist, every "
+               "block placed; %d attributed by Q-net name + %d renamed),"
+               % (TOTAL_FF_NETLIST, TOTAL_FF_NETLIST - UNATTRIBUTED,
+                  UNATTRIBUTED))
     out.append("  %d logical SRAM bits, %d standard cells, %d instances"
                % (SRAM_BITS, TOTAL_CELLS, TOTAL_INSTANCES))
     out.append("")
@@ -280,27 +375,36 @@ This is a Failure Modes, Effects and Diagnostic Analysis of the
 subsystem at the architecture level, built from three kinds of number,
 each labeled throughout:
 
-* **MEASURED** -- element populations counted from the `v2full` placed
-  netlist ({ff_netlist} flip-flops attributed per block by Q-net name,
+* **MEASURED** -- element populations counted from the **final
+  `chip2b` chip netlist** (`{netlist}`, hardened 2026-09-07 with
+  every block placed): {ff_netlist} flip-flops, of which
+  {ff_named} are attributed per block by Q-net name and {ff_unattr}
+  carry synthesis-renamed nets and form the unattributed row --
+  attributed + unattributed = {ff_netlist}, asserted by the script;
   {sram_bits} logical SRAM bits, {cells} standard cells, {insts}
-  instances, die {die} mm² -- re-read from that run's `metrics.json`),
-  plus RTL elaboration for the CLINT ({ff_clint}), the E2E link
-  endpoints ({ff_e2e}) and the Zcmp sequencer ({ff_zcmp}), which
-  **postdate the v2full harden (2026-08-30)**; the final `chip2b`
-  chip netlist now contains them, but these populations have not yet
-  been re-read from it (the open refresh of section 6, item 2); and
-  diagnostic coverage from this variant's
-  fault-injection campaigns (2026-09-02/04: workloads A-D re-run, plus
-  the systematic E2E / CLINT / PMP / Zcmp / debug sweeps --
-  `build/fi_campaign*.txt`).
+  instances -- re-read from that run's `metrics.json`, whose
+  `sequential_cell` count is the same {ff_netlist}. Nothing is
+  RTL-elaborated any more: the CLINT, the E2E endpoints, the Zcmp
+  sequencer and the QSPI boot loader that the 2026-09-02 edition
+  carried as RTL stand-ins (or not at all) are counted from silicon
+  geometry like everything else (`python3 scripts/fmeda.py --netlist
+  <pnl.v>` re-derives every row and fails on drift). Diagnostic
+  coverage is from this variant's fault-injection campaigns
+  (2026-09-02/04: workloads A-D re-run, plus the systematic E2E /
+  CLINT / PMP / Zcmp / debug sweeps -- `build/fi_campaign*.txt`).
 * **ASSUMED** -- base failure rates. **No foundry reliability data for
   IHP SG13G2 was available to this analysis.** The rates are typical
   published figures for a 130 nm-class process at sea level:
   700 FIT/Mbit SRAM soft errors, 400 FIT/Mbit flip-flop soft errors,
   and a permanent-fault total of {perm} FIT -- the same SN 29500-class
-  20 FIT per ~2.6 mm² that variant 1 assumed, now **scaled to this
-  design's measured 3.630 mm²** instead of carrying variant 1's known
-  optimism; the base remains assumed. 2 % multi-bit-upset fraction.
+  20 FIT per ~2.6 mm² that variant 1 assumed, **scaled to the
+  subsystem's measured {die} mm² (`v2full`)** instead of carrying
+  variant 1's known optimism; the base remains assumed, and the
+  scaling area was deliberately left at the subsystem die when the
+  populations moved to `chip2b` (whose 8.400 mm² die is mostly pad
+  ring and its 4.753 mm² core mostly fill -- neither is the digital
+  area a permanent-fault base should scale with; that choice belongs
+  to the handoff of section 6, item 1). 2 % multi-bit-upset fraction.
   **A real safety case replaces every one of these** with foundry data
   and a mission profile; the script makes that a five-line edit.
 * **DERIVED** -- the metrics.
@@ -350,13 +454,21 @@ the stated assumptions, with the caveats of section 1.
 * **JTAG/debug**: read-only by construction and measured 100 %
   silent-ok; carried with safe=0.90 and dc=0, since a wrong
   *observation* is possible but a mission corruption is not.
-* **multdiv dead multiply arm** (finding §17, waiver W5): faults there
-  are **safe by unreachability** -- the subsystem cannot select the
-  iterative multiply -- and have **no functional observer**. They sit
-  inside the core-pair safe fraction and are not counted as covered.
-  The arm is still present in the v2full netlist these populations
-  count; the RTL deleted it on 2026-09-02 (W5 closed), so the `chip2b`
-  population refresh drops the dead area for good.
+* **multdiv dead multiply arm** (finding §17, waiver W5): the RTL
+  deleted it on 2026-09-02 (W5 closed) and `chip2b` was hardened
+  after, so the arm is **gone from the netlist these populations
+  count** -- the core-pair row no longer carries any structurally dead
+  state, only the campaigns' masked/overwritten share.
+* **QSPI boot loader** ({ff_boot} flops, new row): **no campaign
+  swept it**; its figures are argued, two-digit ones. It is a
+  cold-reset-only bus master parked behind `boot_done` in mission, so
+  a mission-time upset in it is safe unless it flips `boot_done` /
+  `boot_fault`, which stalls the fetch enable (fail-stop). During the
+  load, header validation before any write and one CRC32 over both
+  payloads make a corrupted beat a retry and, after `BootRetryMax`, a
+  sticky `boot_fault` with the core never released. The residual is an
+  address register upset after validation, which lands a CRC-correct
+  payload at the wrong offset -- a candidate for a directed sweep.
 
 ## 4. Where the residual lives
 
@@ -372,8 +484,16 @@ to the safety case.
 
 The metrics are ratios, insensitive to the absolute FIT scale. They are
 sensitive to: the MBU fraction (2 % assumed), the mtime safe
-fraction (workload dependent), and the unattributed-flop dc (0.90
-assigned, deliberately below the named-row average). The PMP arrays
+fraction (workload dependent), the unattributed-flop dc (0.90
+assigned, deliberately below the named-row average), and -- since the
+`chip2b` refresh -- the **QSPI boot loader row**, {ff_boot} flops
+carried on an argument (safe 0.85, dc 0.90). Re-computed with that
+row at the unattributed row's figures (safe 0.10, dc 0.90) the result
+is SPFM {s_spfm_a:.2f} %, LFM {s_lfm_a:.2f} %; with the argument
+discarded entirely (safe 0.00, dc 0.50) it is SPFM {s_spfm_b:.2f} %,
+**LFM {s_lfm_b:.2f} %** -- below the ASIL D line. The loader is the one
+row whose figures can move a metric across a threshold, which is the
+case for a directed sweep of it before the safety case. The PMP arrays
 left this list on 2026-09-02: the parity extension over
 pmpcfg/pmpaddr (a `cfg_parity` instance on each core's fold, ~70
 gates) measured 448/448 detected independent of region usage, so the
@@ -384,9 +504,15 @@ rest on a directed measurement rather than a workload profile.
 
 1. Replace the ASSUMED block in `scripts/fmeda.py` with foundry FIT
    data and the mission profile.
-2. The re-harden is done (`chip2b` carries the CLINT, E2E endpoints,
-   Zcmp sequencer and QSPI loader); re-read the populations from that
-   netlist and re-run this script -- still open.
+2. **Done ({date}).** The populations are re-read from the final
+   `chip2b` netlist (`{netlist}`, {ff_netlist} placed flip-flops,
+   every block placed, nothing RTL-counted) and this script re-run;
+   `--netlist` re-derives the table from the netlist and fails on
+   drift, and the row sum is asserted against the placed count. What
+   the refresh left behind: the QSPI boot loader row rests on an
+   argument, not a sweep (section 3), and the CLINT's mtimecmp/msip
+   registers have no named Q-net in this netlist and sit in the
+   unattributed row.
 3. The PMP story is decided in RTL: parity over the arrays
    (2026-09-02, measured 448/448) -- credit it as a measured
    mechanism.
@@ -400,23 +526,101 @@ rest on a directed measurement rather than a workload profile.
 """
 
 
+FF_CELL = "sg13g2_dfrbpq_1"      # the only sequential cell in chip2b
+
+
+def count_netlist(path):
+    """Re-derive the per-row flip-flop populations from a placed
+    netlist: every FF_CELL instance's .Q net, bit index stripped,
+    attributed by the first matching ATTRIBUTION rule.  Returns
+    (counts by row, total, unmatched Q-nets)."""
+    rules = [(name, re.compile(pat)) for name, pat in ATTRIBUTION]
+    counts = collections.Counter()
+    unmatched = []
+    total = 0
+    in_ff = False
+    with open(path) as f:
+        for line in f:
+            if line.startswith(" %s " % FF_CELL):
+                in_ff = True
+                total += 1
+                continue
+            if in_ff and ".Q(" in line:
+                q = line.split(".Q(", 1)[1].rsplit(")", 1)[0].strip()
+                q = q.lstrip("\\").strip()
+                q = re.sub(r"\[\d+\]", "", q)
+                for name, rx in rules:
+                    if rx.search(q):
+                        counts[name] += 1
+                        break
+                else:
+                    unmatched.append(q)
+                in_ff = False
+    return counts, total, unmatched
+
+
+def check_netlist(path):
+    """Compare the table against a fresh recount; return True if the
+    table is exactly what the netlist says."""
+    counts, total, unmatched = count_netlist(path)
+    ok = True
+    print("recount of %s" % path)
+    print("%-28s %8s %8s" % ("element", "table", "netlist"))
+    for name, ffs, *_ in ELEMENTS:
+        flag = "" if counts[name] == ffs else "   <-- DRIFT"
+        if flag:
+            ok = False
+        print("%-28s %8d %8d%s" % (name, ffs, counts[name], flag))
+    print("%-28s %8d %8d" % ("TOTAL", TOTAL_FF_NETLIST, total))
+    if total != TOTAL_FF_NETLIST:
+        ok = False
+        print("TOTAL_FF_NETLIST %d != %d %s instances in the netlist"
+              % (TOTAL_FF_NETLIST, total, FF_CELL))
+    if unmatched:
+        ok = False
+        print("%d Q-nets matched no rule, e.g. %s"
+              % (len(unmatched), unmatched[:5]))
+    if sum(counts.values()) != total:
+        ok = False
+        print("attributed %d != %d instances" % (sum(counts.values()), total))
+    print("attributed %d + unattributed %d = %d (netlist %d): %s"
+          % (total - counts["unattributed (renamed)"],
+             counts["unattributed (renamed)"], sum(counts.values()), total,
+             "OK" if ok else "MISMATCH"))
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--md", metavar="PATH",
                     help="write the full FMEDA document (doc/fmeda.md)")
+    ap.add_argument("--netlist", metavar="PNL_V",
+                    help="re-derive every row's population from this "
+                         "placed netlist and exit non-zero on drift "
+                         "(default: %s)" % NETLIST, nargs="?", const=NETLIST)
     args = ap.parse_args()
+
+    if args.netlist:
+        if not check_netlist(args.netlist):
+            sys.exit(1)
+        print()
 
     rows, lam, safe, spf, spfm, lfm, lat_mech, lam_mech = compute()
     text = result_text()
     print(text)
 
     if args.md:
-        pmp_row = next(r for r in rows if r[0].startswith("PMP"))
+        boot = "QSPI boot loader"
+        sens_a = compute({boot: (0.10, 0.90, 0.90, 0.90)})
+        sens_b = compute({boot: (0.00, 0.50, 0.50, 0.50)})
         doc = DOC_TEMPLATE.format(
-            date="2026-09-02",
+            date=DATE, netlist=NETLIST,
             ff_netlist=TOTAL_FF_NETLIST, sram_bits=SRAM_BITS,
-            cells=TOTAL_CELLS, insts=TOTAL_INSTANCES, die=DIE_MM2,
-            ff_clint=FF_CLINT, ff_e2e=FF_E2E, ff_zcmp=FF_ZCMP_SEQ,
+            ff_named=TOTAL_FF_NETLIST - UNATTRIBUTED, ff_unattr=UNATTRIBUTED,
+            ff_boot=next(e[1] for e in ELEMENTS if e[0] == boot),
+            s_spfm_a=100 * sens_a[4], s_lfm_a=100 * sens_a[5],
+            s_spfm_b=100 * sens_b[4], s_lfm_b=100 * sens_b[5],
+            cells=TOTAL_CELLS, insts=TOTAL_INSTANCES, die="%.3f" % DIE_MM2,
             perm="%.1f" % PERM_FIT_TOTAL,
             result=text, spfm=100 * spfm, lfm=100 * lfm, spf=spf,
             # from build/fi_campaign_zcmp.txt / _e2e.txt (2026-09-02,

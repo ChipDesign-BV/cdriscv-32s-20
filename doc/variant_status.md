@@ -577,21 +577,31 @@ record.
    change either way).
 
 9. **Coverage (O6/O7), fault injection and the FMEDA are all this
-   variant's now.** On the final RTL (2026-09-02, post the three
-   measured-finding fixes): line **96.1 %** measured / **100 % with 23
-   reviewed waivers** (re-reconciled in
-   [verif/coverage_waivers.md](../verif/coverage_waivers.md)), toggle
-   **96.3 %** (the ≥ 95 % sub-criterion is
-   met), functional **100 % of 92 points**. Eight FI campaigns
+   variant's now.** On HEAD with the QSPI loader in the tree
+   (2026-09-13 re-baseline; the 2026-09-02 run on the pre-loader RTL
+   read 96.1 / 100 with 23 / 96.3): line **96.0 %** measured (598 of
+   623) / **100 % with 25 reviewed waivers** (re-reconciled in
+   [verif/coverage_waivers.md](../verif/coverage_waivers.md) — the two
+   new ones are the loader's upset-recovery arms), toggle **96.1 %**
+   (the ≥ 95 % sub-criterion is met; it had dipped to 94.9 % on the
+   loader's constant nets and was recovered by adding the
+   `BootEnable=1` boot benches — clean, corrupt-image and `/4`-clock —
+   to the merge, not by waiving: findings §21), functional **100 % of
+   92 points**. Eight FI campaigns
    measured every claimed mechanism; two findings went back into the
    RTL and were re-measured closed (E2E byte enables 10 SDCs → 0;
    PMP arrays 90.8 % latent → 448/448 detected at 2 cycles). The
-   FMEDA ([fmeda.md](fmeda.md), 2026-09-02): **SPFM 99.50 %, LFM
-   92.66 %, residual 1.22 FIT** — both past the ASIL D thresholds *on
-   assumed base rates*, populations from the v2full netlist plus RTL
-   elaboration for the blocks that post-date it. The final `chip2b`
-   netlist now exists (item 8); refreshing the FMEDA populations from
-   it is an open to-do, alongside O8 below.
+   FMEDA ([fmeda.md](fmeda.md), refreshed 2026-09-13): **SPFM
+   99.51 %, LFM 93.45 %, residual 1.20 FIT** — both past the ASIL D
+   thresholds *on assumed base rates*, populations now re-read from
+   the final `chip2b` netlist (item 8: 7 538 placed flops, every block
+   placed, nothing RTL-elaborated; `scripts/fmeda.py --netlist`
+   re-derives the table and fails on drift). The 2026-09-02 edition
+   (SPFM 99.50 / LFM 92.66 / 1.22 FIT) counted the v2full netlist plus
+   RTL stand-ins for the blocks that post-dated it. What the refresh
+   left open: the QSPI loader row (534 flops) is argued, not swept —
+   with the argument discarded LFM falls to 87.22 %, below ASIL D — so
+   a directed loader sweep is the next measurement, not a formality.
 
    The coverage machinery that made the numbers honest (2026-09-01
    pass): line was 95.8 % measured (568 of 593) with **25 reviewed
@@ -647,6 +657,14 @@ record.
    gate-level simulation, now waiting on the final `chip2b` netlist
    rather than on a harden that had not run — and the FMEDA population
    refresh from that same netlist.)*
+
+   *(Updated 2026-09-13 — the FMEDA refresh is done (opening
+   paragraph); `gate-fsm-core` was closed in finding §20; O8 has its
+   first result on `chip2b`: the flat post-route chip with SDF cell
+   delays boots the smoke firmware through the QSPI pads at the typ
+   corner, 1-bit and quad, PASS and cycle-identical to RTL —
+   `gate-chip-sdf`, §21. Still open in O8: the slow corner and the
+   12-test architectural subset on that netlist.)*
 
 10. **The chip can now load firmware — there was no way to fill the
     volatile I-TCM on real silicon at all.** Every path into the I-TCM

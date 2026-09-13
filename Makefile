@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 ABI        := ilp32
 
-.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean bootsim bootsim-fault block block-20 block-alu block-qspi block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety coverage fi fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean fpga-synth bootsim bootsim-fault block block-20 block-alu block-qspi block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-decompress formal-lsu formal-safety coverage fi fi-random fi-sweep fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -86,6 +86,23 @@ TCM_WORDS ?= 4096
 
 $(BUILD)/%.hex: $(BUILD)/%.bin
 	$(PYTHON) scripts/mkimage.py $< $@ --words $(TCM_WORDS)
+
+# ------------------------------------------------------------- fpga
+# ECP5 synthesis of the whole subsystem (doc/fpga_ulx3s.md §4, step 1).
+# Synthesis only: nextpnr-ecp5 is not installed here, so this measures
+# fit (LUT/FF/EBR/MULT against the ULX3S 45F) and that the TCMs infer
+# as EBR -- it does not produce a bitstream.  ~2 h, almost all ABC9.
+# boot_addr_i is tied as the ASIC gate rules tie it (V18): as a port it
+# is an async-load flop synth_ecp5 refuses to legalise.
+fpga-synth: $(RTL) | $(BUILD)
+	mkdir -p $(BUILD)/ulx3s
+	$(YOSYS) -p "plugin -i slang; \
+	  read_slang --top $(TOP) -G BootEnable=1 $(RTL); \
+	  connect -set boot_addr_i 32'h00000000; \
+	  synth_ecp5 -top $(TOP); \
+	  tee -o $(BUILD)/ulx3s/subsys_ecp5_stat.txt stat" \
+	  -l $(BUILD)/ulx3s/subsys_ecp5.log > /dev/null
+	@grep -E "DP16KD|TRELLIS_FF|LUT4|MULT18X18D|cells$$" $(BUILD)/ulx3s/subsys_ecp5_stat.txt | tail -6
 
 # ------------------------------------------------------------- bootsim
 # The QSPI boot path at system level: EMPTY TCMs, the flash model holds
@@ -692,6 +709,39 @@ $(BUILD)/obj_sftycov/tb_safety_cov: $(RTL) verif/safety/tb_safety.sv $(COVER_SV)
 	  --top-module tb_safety -o tb_safety_cov -Mdir $(BUILD)/obj_sftycov \
 	  $(RTL) verif/safety/tb_safety.sv $(COVER_SV)
 
+# The boot bench, BootEnable=1: the only bench that drives the QSPI loader.
+# Every other coverage bench builds BootEnable=0, where the loader's
+# ports, its 2:1 bus mux and the safety controller's boot inputs are tied
+# constant and can never toggle -- twelve source lines that the loader
+# added after the 2026-09-02 baseline and that took raw toggle from
+# 96.3 % (786/816) to 94.9 % (786/828) with nothing else changed.  The
+# fix is exercise, not a waiver (finding 20).  Sources outside rtl/ (the
+# flash model, the bench) are excluded from the RTL metric by
+# coverage_report.py's path filter.
+$(BUILD)/obj_bootcov/tb_boot_cov: $(RTL) verif/models/spi_norflash_model.sv \
+                                  tb/tb_cdriscv_boot.sv $(COVER_SV) | $(BUILD)
+	$(VERILATOR) --binary --timing -sv --timescale 1ns/1ps \
+	  --coverage-line --coverage-toggle --coverage-user \
+	  -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	  -Wno-SYNCASYNCNET -Wno-WIDTHTRUNC -Wno-MULTIDRIVEN \
+	  --top-module tb_cdriscv_boot -o tb_boot_cov -Mdir $(BUILD)/obj_bootcov \
+	  $(RTL) verif/models/spi_norflash_model.sv tb/tb_cdriscv_boot.sv $(COVER_SV)
+
+# The same bench at BootSclkDiv=4.  The loader's divider counts up only
+# when HalfDiv > 1, so at the chip's /2 setting that branch can never
+# execute; a /4 build reaches it with the same image and the same PASS
+# criterion (block-qspi test 10 also builds a /4 DUT, but its .dat is
+# not part of this merge).
+$(BUILD)/obj_bootcov4/tb_boot_cov4: $(RTL) verif/models/spi_norflash_model.sv \
+                                    tb/tb_cdriscv_boot.sv $(COVER_SV) | $(BUILD)
+	$(VERILATOR) --binary --timing -sv --timescale 1ns/1ps \
+	  --coverage-line --coverage-toggle --coverage-user \
+	  -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+	  -Wno-SYNCASYNCNET -Wno-WIDTHTRUNC -Wno-MULTIDRIVEN \
+	  -GBootSclkDiv=4 \
+	  --top-module tb_cdriscv_boot -o tb_boot_cov4 -Mdir $(BUILD)/obj_bootcov4 \
+	  $(RTL) verif/models/spi_norflash_model.sv tb/tb_cdriscv_boot.sv $(COVER_SV)
+
 coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
           $(BUILD)/obj_sftycov/tb_safety_cov \
           $(BUILD)/obj_cmcov/tb_clkmon_cov \
@@ -702,7 +752,9 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
           $(BUILD)/fence_csr_test.hex $(BUILD)/rdback_test.hex \
           $(BUILD)/safety_test.hex \
           $(BUILD)/pmp_test.hex $(BUILD)/zcmp_test.hex \
-          $(BUILD)/regwalk_test.hex $(BUILD)/dtcm_zero.hex sw
+          $(BUILD)/regwalk_test.hex $(BUILD)/dtcm_zero.hex \
+          $(BUILD)/obj_bootcov/tb_boot_cov $(BUILD)/obj_bootcov4/tb_boot_cov4 \
+          $(BUILD)/boot_flash.hex $(BUILD)/boot_flash_quad.hex sw
 	@# The tb_cosim_cov soaks end by cycle-cap TIMEOUT by design: the
 	@# workload completes and parks (WFI/spin), and the stall variants can
 	@# never reach MAXRETIRE under 90 % back-pressure.  The exit guard
@@ -795,6 +847,32 @@ coverage: $(BUILD)/obj_cov/tb_cosim_cov $(BUILD)/obj_syscov/tb_sys_cov \
 	  > $(BUILD)/cov/safetybench_cov.log 2>&1 && \
 	  grep -q "\[tb_safety\] PASS" $(BUILD)/cov/safetybench_cov.log && \
 	  mv coverage.dat $(BUILD)/cov/cov_safetybench.dat
+	@./$(BUILD)/obj_bootcov/tb_boot_cov +FLASH_HEX=$(BUILD)/boot_flash.hex \
+	  > $(BUILD)/cov/boot_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/boot_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_boot.dat
+	@./$(BUILD)/obj_bootcov/tb_boot_cov +FLASH_HEX=$(BUILD)/boot_flash_quad.hex \
+	  > $(BUILD)/cov/boot_quad_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/boot_quad_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_boot_quad.dat
+	@# The corrupt-image boot is the only run that reaches the loader's
+	@# retry/fault paths: boot_fault, boot_retries, retries_q, fail_w,
+	@# the S_FAULT arm, and the safety controller's boot inputs.  A clean
+	@# boot cannot toggle any of them, so without this run they read as
+	@# uncovered for a reason that is a property of the stimulus, not of
+	@# the design.  Judged by the same line bootsim-fault judges.
+	@./$(BUILD)/obj_bootcov/tb_boot_cov +FLASH_HEX=$(BUILD)/boot_flash.hex +CORRUPT \
+	  > $(BUILD)/cov/boot_fault_cov.log 2>&1 && \
+	  grep -q "PASS corrupt-image" $(BUILD)/cov/boot_fault_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_boot_fault.dat
+	@./$(BUILD)/obj_bootcov/tb_boot_cov +FLASH_HEX=$(BUILD)/boot_flash_quad.hex +CORRUPT \
+	  > $(BUILD)/cov/boot_fault_quad_cov.log 2>&1 && \
+	  grep -q "PASS corrupt-image" $(BUILD)/cov/boot_fault_quad_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_boot_fault_quad.dat
+	@./$(BUILD)/obj_bootcov4/tb_boot_cov4 +FLASH_HEX=$(BUILD)/boot_flash.hex \
+	  > $(BUILD)/cov/boot_div4_cov.log 2>&1 && \
+	  grep -q "\[TB\] PASS" $(BUILD)/cov/boot_div4_cov.log && \
+	  mv coverage.dat $(BUILD)/cov/cov_boot_div4.dat
 	verilator_coverage --write $(BUILD)/cov/merged.dat $(BUILD)/cov/cov_*.dat
 	@rm -rf $(BUILD)/cov/ann_line $(BUILD)/cov/ann_tog
 	verilator_coverage --filter-type line --annotate $(BUILD)/cov/ann_line \
@@ -944,9 +1022,16 @@ GATE_RTL := $(filter-out rtl/bus/cdriscv_32s_20_tcm.sv,$(RTL))
 # have no flash, exactly like the RTL benches, and a netlist bakes its
 # parameters -- so synthesis must be told, not the (parameterless)
 # netlist instantiation.
+# boot_addr_i is tied to a constant here too, as the STA and _pd rules
+# already do (V18): left as a port it is a flop whose reset loads DATA,
+# which no sg13g2 cell implements, and yosys emitted it as a bare
+# $_ALDFFE_PNP_ -- the "Area for cell type $_ALDFFE_PNP_ is unknown" line
+# in every subsys synth log, a cell with no library model sitting in the
+# netlist that step 5 of the nightly simulates.
 $(BUILD)/gate/cdriscv_32s_20_subsys_gate.v: $(RTL) verif/gate/cdriscv_32s_20_tcm_bb.sv | $(BUILD)/gate
 	$(YOSYS) -p "plugin -i slang; \
 	  read_slang --top $(TOP) -G BootEnable=0 verif/gate/cdriscv_32s_20_tcm_bb.sv $(GATE_RTL); \
+	  connect -set boot_addr_i 32'h00000000; \
 	  synth -top $(TOP) -flatten; \
 	  dfflibmap -liberty $(GATE_LIB); \
 	  abc -liberty $(GATE_LIB); \
@@ -1079,6 +1164,11 @@ gate-fsm-core: $(BUILD)/gate/tb_fsm_cdriscv_core.vvp
 
 gate: gate-alu gate-multdiv gate-ecc gate-fsm gate-fsm-apb gate-fsm-lsu \
       gate-fsm-mbist gate-fsm-ams gate-fsm-core gate-subsys
+
+# The chip-level SDF benches (O8 on the chip2b post-route netlist, finding
+# 21) live in their own include so they can be developed without editing
+# this file; `-include` tolerates the file not existing yet.
+-include verif/gate/gate_chip.mk
 
 # ------------------------------------------------- RISCOF (O1)
 # The architectural test suite is fetched, not vendored -- see
@@ -1268,7 +1358,13 @@ $(BUILD)/tb_fi.vvp: $(RTL) verif/fi/tb_fi.sv | $(BUILD)
 # nothing is what a safety mechanism exists to prevent.
 # fi-check (workload D) was missing from this list and silently never
 # re-ran on the new RTL while the FMEDA claimed it had (2026-09-04).
-fi: fi-arith fi-trap fi-mem fi-check fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
+# Two halves, so the nightly runs them as parallel shards: back to back
+# they took 4 h 29 min at FI_RUNS=2600 -- 269 of the 360-minute job
+# ceiling (finding 20).  FI_RUNS sizes only the random half; the sweeps
+# are fixed-size (400/435/448/248/64 upsets).
+fi-random: fi-arith fi-trap fi-mem fi-check
+fi-sweep:  fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
+fi: fi-random fi-sweep
 
 # --golden-cfg is the safety configuration signature from a fault-free
 # run.  Without it a fault that switches a detector off is reported as
@@ -1399,7 +1495,7 @@ fi-dbg: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload.hex $(BUILD)/dtcm_zero.hex
 FORMAL_DEPTH ?= 20
 SBY          ?= sby
 
-formal: formal-if formal-ecc formal-bus formal-dec formal-lsu formal-safety
+formal: formal-if formal-ecc formal-bus formal-dec formal-decompress formal-lsu formal-safety
 
 formal-if: | $(BUILD)
 	$(SBY) -f -d $(BUILD)/fv_if verif/formal/if_stage.sby bmc \
@@ -1428,6 +1524,19 @@ formal-dec: | $(BUILD)
 	$(SBY) -f -d $(BUILD)/fv_dec verif/formal/decoder.sby bmc \
 	  | tee $(BUILD)/formal_dec.log
 	@grep -q "DONE (PASS" $(BUILD)/formal_dec.log
+
+# The compressed-instruction decompressor composed with the decoder,
+# exhaustive over every 2^16 encoding (depth 2, combinational): a
+# 16-bit encoding the pair rejects has no architectural effect, every
+# accepted expansion is a 32-bit word the decoder accepts, and the RVC /
+# Zcb mappings are pinned against the spec's field tables.  49 asserts,
+# 0 assumes -- quadrant 3 is asserted, not assumed away.  This is what
+# the 2^32 decoder proof above cannot see: the decode logic variant 2
+# added in front of it (finding 21).
+formal-decompress: | $(BUILD)
+	$(SBY) -f -d $(BUILD)/fv_decompress verif/formal/decompress.sby bmc \
+	  | tee $(BUILD)/formal_decompress.log
+	@grep -q "DONE (PASS" $(BUILD)/formal_decompress.log
 
 # The LSU drives its bus outputs combinationally from the core's
 # request, so the core owes it stability.  That obligation is an

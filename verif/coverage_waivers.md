@@ -35,6 +35,17 @@ Line numbers below are from the 2026-09-02 annotated database
 *The 2026-09-01 reconciliation, for the record: 593 lines, 95.8 %
 measured (568 of 593), 25 waived (20 in W2, 4 in W4, 1 in W5).*
 
+**Re-reconciled 2026-09-13 on HEAD, with the QSPI boot loader in the
+RTL and its benches in the merge** (findings §21): 623 lines, **96.0 %
+measured (598 of 623), 100 % with 25 waived — 21 in W2 (9 in W2a, 12
+in W2b), 4 in W4**. The two additions are the loader's upset-recovery
+arms (`qspi_boot.sv:400` and `:520`, W2a). Two other loader lines that
+the first re-run left uncovered — the SPI divider's count-up branch,
+dead at the chip's `BootSclkDiv=2` — were *not* waived: the flow now
+also builds the boot bench at `/4` and they are covered. Every line
+number in W2a, W2b and W4 was re-derived from the 2026-09-13 annotated
+database (they had drifted by three to seven lines since 2026-09-02).
+
 ### A correction: this waiver was wrong when first written
 
 It originally claimed seventeen lines and said "every one of them" was
@@ -63,13 +74,15 @@ part of it.
 
 | file | line | note |
 |------|------|------|
-| `cdriscv_32s_20_ams_if.sv` | 161 | |
-| `cdriscv_32s_20_apb_bridge.sv` | 73 | |
-| `cdriscv_32s_20_core.sv` | 682 | enum is now 3 bits with **5 of 8** values used (ST_SEQ) |
-| `cdriscv_32s_20_jtag_tap.sv` | 85 | new 2026-09-01; 16 of 16 values used |
-| `cdriscv_32s_20_lsu.sv` | 105 | |
-| `cdriscv_32s_20_mbist.sv` | 132 | |
-| `cdriscv_32s_20_multdiv.sv` | 126 | divider-only since 2026-09-02 (W5) |
+| `cdriscv_32s_20_ams_if.sv` | 164 | |
+| `cdriscv_32s_20_apb_bridge.sv` | 76 | |
+| `cdriscv_32s_20_core.sv` | 684 | enum is now 3 bits with **5 of 8** values used (ST_SEQ) |
+| `cdriscv_32s_20_jtag_tap.sv` | 87 | new 2026-09-01; 16 of 16 values used |
+| `cdriscv_32s_20_lsu.sv` | 108 | |
+| `cdriscv_32s_20_mbist.sv` | 135 | |
+| `cdriscv_32s_20_multdiv.sv` | 133 | divider-only since 2026-09-02 (W5) |
+| `cdriscv_32s_20_qspi_boot.sv` | 520 | new 2026-09-13; `state_e` 3 bits, **7 of 8** used — `default: state_q <= S_IDLE; // upset recovery` |
+| `cdriscv_32s_20_qspi_boot.sv` | 400 | new 2026-09-13; `default: ;` in the SPI-fall `unique case (phase_q)` — `phase_e` 3 bits, 7 of 8 used, and the two listed-but-absent members (`P_NONE`, `P_GAP`) are exactly the phases in which `spi_shifting`, hence `spi_fall`, is false, so the arm is reached only by an upset of `phase_q` |
 
 Each is `default: state_d = <IDLE>;` in a `unique case (state_q)` whose
 register is only ever assigned members of its enum, so no sequence of
@@ -167,16 +180,16 @@ from the subsystem netlist was abandoned for exactly that reason.
 
 | file | line | selector | spare encodings? |
 |------|------|----------|------------------|
-| `cdriscv_32s_20_alu.sv` | 163 | ALU operation enum, **6 bits, 38 of 64 used** | yes — see below |
-| `cdriscv_32s_20_decoder.sv` | 324 | OP-IMM `funct3`, all eight values listed | no |
-| `cdriscv_32s_20_decompress.sv` | 193 | `instr[6:5]`, all four listed (c.sub/xor/or/and) | no |
-| `cdriscv_32s_20_decompress.sv` | 220 | `instr[11:10]`, all four listed | no |
-| `cdriscv_32s_20_decompress.sv` | 226 | quadrant-01 `funct3`, all eight listed | no |
-| `cdriscv_32s_20_core.sv` | 333, 344 | operand select enums, 3 of 4 values used | yes — see below |
-| `cdriscv_32s_20_core.sv` | 752 | writeback select enum, all four listed | no |
-| `cdriscv_32s_20_lsu.sv` | 81, 143 | `addr[1:0]`, all four values listed | no |
-| `cdriscv_32s_20_pmp.sv` | 107 | `pmpcfg.A`, all four values listed (OFF/TOR/NA4/NAPOT) | no |
-| `cdriscv_32s_20_pmp.sv` | 116 | access type enum, 3 of 4 values used | yes — see below |
+| `cdriscv_32s_20_alu.sv` | 165 | ALU operation enum, **6 bits, 38 of 64 used** | yes — see below |
+| `cdriscv_32s_20_decoder.sv` | 326 | OP-IMM `funct3`, all eight values listed | no |
+| `cdriscv_32s_20_decompress.sv` | 195 | `instr[6:5]`, all four listed (c.sub/xor/or/and) | no |
+| `cdriscv_32s_20_decompress.sv` | 222 | `instr[11:10]`, all four listed | no |
+| `cdriscv_32s_20_decompress.sv` | 228 | quadrant-01 `funct3`, all eight listed | no |
+| `cdriscv_32s_20_core.sv` | 335, 346 | operand select enums, 3 of 4 values used | yes — see below |
+| `cdriscv_32s_20_core.sv` | 754 | writeback select enum, all four listed | no |
+| `cdriscv_32s_20_lsu.sv` | 84, 146 | `addr[1:0]`, all four values listed | no |
+| `cdriscv_32s_20_pmp.sv` | 109 | `pmpcfg.A`, all four values listed (OFF/TOR/NA4/NAPOT) | no |
+| `cdriscv_32s_20_pmp.sv` | 118 | access type enum, 3 of 4 values used | yes — see below |
 
 The full-selector rows are unreachable by construction — a two-bit
 selector has no fifth value. The three rows marked **yes** are the ones
@@ -330,7 +343,7 @@ is not a gap in the stimulus — it is the definition of the mechanism.
 **Status**: permanent, re-review only if the E2E fold or the fault
 wiring changes (last re-review 2026-09-02, for the be fold).
 
-## W4 — `cdriscv_32s_20_core.sv:523-526`, fetch-target misalignment trap (2026-09-01)
+## W4 — `cdriscv_32s_20_core.sv:525-528`, fetch-target misalignment trap (2026-09-01)
 
 ```systemverilog
 end else if (instr_misalign) begin
