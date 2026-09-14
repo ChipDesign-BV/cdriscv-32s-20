@@ -21,12 +21,13 @@
 > (E2E byte-enable fold; config parity over the PMP arrays).
 >
 > What keeps the disclaimer in force: the base failure rates are
-> **assumed**, because no foundry FIT data exists for this design; O8
-> (gate-level) is open — the final `chip2b` netlist now exists and the
-> work has not been done on it, and the FMEDA's populations partly rest
-> on RTL elaboration until they are refreshed from it; there is no mission
-> profile, no common-cause analysis for the lockstep pair, and no
-> safety-case owner. **No claim of compliance with ISO 26262, IEC 61508
+> **assumed**, because no foundry FIT data exists for this design; the
+> FMEDA's QSPI-loader row is argued rather than swept (LFM 87.22 % if
+> the argument is discarded — a directed loader sweep is the open
+> measurement); there is no mission profile, no common-cause analysis
+> for the lockstep pair, and no safety-case owner. O8 is met on the
+> final `chip2b` netlist (2026-09-14) and the FMEDA's populations are
+> counted from it. **No claim of compliance with ISO 26262, IEC 61508
 > or any other functional safety standard is made, and none may be
 > derived from this document.**
 >
