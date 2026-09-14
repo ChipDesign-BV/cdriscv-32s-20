@@ -4,8 +4,8 @@
 > **This document describes cdriscv-32s-20.** It began as variant 1's and
 > has been revised for this variant — the port list, the clock domains,
 > the register map and the assumptions of use are this design's. The evidence
-> behind it is this variant's own — O1–O7 and O9 are met on this
-> repository's runs, O8 (gate level) is open — and any measured figure
+> behind it is this variant's own — every objective O1–O9 is met on
+> this repository's runs (O8 on the final `chip2b` netlist) — and any measured figure
 > still quoted from variant 1 is labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what holds here.
 
@@ -150,11 +150,11 @@ fault on a fetch).
 These are known and unresolved. As of 2026-09-02 the O1–O7 gate of
 this variant's verification plan is met on this repository's runs, so
 the IP **may be used in a project**; the gaps below are the reason it
-remains **not qualified for safety-critical use** — of the O8–O9 gate,
-O9 and the FMEDA are done and O8 (gate level) is started but open: the
-final `chip2b` netlist boots with SDF timing at the typ corner
-(2026-09-13); the slow corner and the architectural subset have not
-been run on it.
+remains **not qualified for safety-critical use** — the O8–O9 gate is
+also met on this repository's runs (O8 on the final `chip2b` netlist
+at both signoff corners, 2026-09-14; O9 and the FMEDA on this
+variant's campaigns), so what separates "met" from "qualified" is
+entirely the list below, not a missing objective.
 
 * The FMEDA exists ([fmeda.md](fmeda.md), computed on this variant's
   campaigns, populations refreshed from the final `chip2b` netlist

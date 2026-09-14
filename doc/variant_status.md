@@ -659,12 +659,14 @@ record.
    refresh from that same netlist.)*
 
    *(Updated 2026-09-13 — the FMEDA refresh is done (opening
-   paragraph); `gate-fsm-core` was closed in finding §20; O8 has its
-   first result on `chip2b`: the flat post-route chip with SDF cell
-   delays boots the smoke firmware through the QSPI pads at the typ
-   corner, 1-bit and quad, PASS and cycle-identical to RTL —
-   `gate-chip-sdf`, §21. Still open in O8: the slow corner and the
-   12-test architectural subset on that netlist.)*
+   paragraph); `gate-fsm-core` was closed in finding §20; **O8 is met
+   on `chip2b`**: the flat post-route chip with SDF cell delays boots
+   the smoke firmware through the QSPI pads at the typ and slow
+   corners, 1-bit and quad, PASS and cycle-identical to RTL, and the
+   twelve-test architectural subset at the slow corner matches Spike's
+   signatures 12 of 12 — `gate-chip-sdf` / `gate-chip-arch`, §21, with
+   the limitation that Icarus applies cell delays only, no
+   interconnect and no timing checks.)*
 
 10. **The chip can now load firmware — there was no way to fill the
     volatile I-TCM on real silicon at all.** Every path into the I-TCM

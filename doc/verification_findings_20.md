@@ -1286,9 +1286,31 @@ the zero-delay netlist run report (RTL: 11 334 / 11 036; the one-cycle
 difference is the pad path). 61 minutes wall and 1.65 GB each, of
 which the annotation read is ~55 minutes — the simulation itself runs
 at about 47 cycles/s, so the cost of a chip-level gate run is the SDF,
-not the cycles. **Not yet on this netlist:** the slow corner
-(`CHIP_CORNER=nom_slow_1p08V_125C`, the signoff corner) and the
-12-test architectural subset (`gate-chip-arch`, each test packed into
-a quad flash image, booted through the loader, signature compared
-word-for-word with Spike's). Both are set up and will be recorded here
-when they have run; until then O8 is started, not met.
+not the cycles. **Result, slow corner (`nom_slow_1p08V_125C`, the signoff corner,
+setup +0.040 ns):** 1-bit boot **PASS 11 334 / boot_done 11 035**, quad
+**PASS 3 726 / 3 427** — the same cycles as typ and RTL; 89 and 86
+minutes wall with five runs sharing the machine. **Architectural
+subset, slow corner (`gate-chip-arch`, 3 jobs):** all twelve tests
+booted through the loader from a quad flash image and **every
+signature matches Spike word-for-word** — `I/add-01` (592 words,
+98 081 cycles), `sub-01` (596), `xor-01` (592), `sltu-01` (724,
+113 135 cycles), `jalr-01`, `lw-align-01`, `sw-align-01`,
+`M/mul-01` (616), `div-01` (616, 122 612 cycles), `privilege/
+misalign-lh-01`, `ebreak`, `Zifencei/Fencei`: **12 pass, 0 fail, 0
+skip**, 69 to 131 minutes each, of which 27 k–108 k cycles are the boot
+itself (the arch images are 6–24 KiB and the header and commands still
+go 1-bit). A test that does not build is SKIP and a run without a
+verdict or a signature is FAIL — a missing result is never a pass.
+
+That is O8 on the netlist that was hardened, both loader paths, both
+corners the signoff quotes, smoke plus the same twelve-test subset the
+subsystem-level `gate-arch` runs — **met**, with the limitation stated
+above: annotated cell delays, no interconnect, no timing checks.
+
+**CI confirmation of the fault-injection split (run #69, dispatched on
+`32c5781`, and #70, the push).** All 13 jobs green. `fault injection
+(random)` 3 h 27 min, `(sweep)` 58 min, in parallel: the nightly's
+longest job falls from 5 h 13 min (313 of 360, finding 20's closure) to
+3 h 27 min, and a red shard no longer hides the other. `gate level and
+timing` 11 min, formal 1 h 25 min with `formal-decompress` in it,
+coverage 5.5 min with the three boot benches.

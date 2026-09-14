@@ -4,8 +4,8 @@
 > **This document describes cdriscv-32s-20.** It began as variant 1's and
 > has been revised for this variant — the port list, the clock domains,
 > the register map and the assumptions of use are this design's. The evidence
-> behind it is this variant's own — O1–O7 and O9 are met on this
-> repository's runs, O8 (gate level) is open — and any measured figure
+> behind it is this variant's own — every objective O1–O9 is met on
+> this repository's runs (O8 on the final `chip2b` netlist) — and any measured figure
 > still quoted from variant 1 is labelled as such where it appears. See
 > [variant_status.md](variant_status.md) for what holds here.
 

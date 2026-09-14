@@ -4,7 +4,7 @@
 > **Inherited from [cdriscv-32s-10](https://github.com/ChipDesign-BV/cdriscv-32s-10)
 > and describing variant 1.** Every measured result *in this document*
 > was produced on variant 1; cdriscv-32s-20's own results — which now
-> cover every objective except O8 — live in
+> cover every objective, O1–O9 — live in
 > [variant_status.md](variant_status.md), not here.
 
 > **This plan's results are variant 1's.** The objectives O1–O9 below
@@ -18,12 +18,13 @@
 > fault-injection campaigns, and an FMEDA (SPFM 99.51 % / LFM 93.45 %
 > on assumed rates, populations from the final `chip2b` netlist,
 > [fmeda.md](fmeda.md)). The physical implementation
-> is timing-closed at chip level ([chip.md](chip.md)). **O8 —
-> gate-level simulation — is started, not met**: the final `chip2b`
-> post-route netlist boots through the pads with SDF cell delays at
-> the typ corner (2026-09-13, `gate-chip-sdf`, findings §21); the slow
-> corner and the architectural subset on that netlist are still to
-> run. Read every "**met**" in the table below as *met by variant 1*.
+> is timing-closed at chip level ([chip.md](chip.md)), and **O8 is met
+> on that final `chip2b` post-route netlist** (2026-09-13/14,
+> `gate-chip-sdf` / `gate-chip-arch`, findings §21): SDF-annotated
+> boots through the pads at the typ and slow corners and twelve arch
+> tests matching Spike at the slow corner. Every objective O1–O9 is
+> now met on this variant's own runs. Read every "**met**" in the
+> table below as *met by variant 1*.
 
 > **Variant 1 status, 2026-08-25: every objective O1–O9 is met** — see the
 > objective table below for each criterion's result, the README for
