@@ -14,17 +14,14 @@
 > co-simulated instructions), O3, O5, O6 (line 100 % with reviewed
 > waivers), O7 (functional 100 % of the current model, toggle ≥ 95 %)
 > and O9 are all measured on this RTL. Eight fault-injection campaigns
-> feed an FMEDA computed on this design — **SPFM 99.51 %, LFM 93.45 %,
-> residual 1.20 FIT** ([fmeda.md](fmeda.md), populations from the
+> feed an FMEDA computed on this design — **SPFM 99.52 %, LFM 93.63 %, residual 1.18 FIT** ([fmeda.md](fmeda.md), populations from the
 > final `chip2b` netlist, 2026-09-13) — with two of
 > its findings already fed back into the RTL and re-measured closed
 > (E2E byte-enable fold; config parity over the PMP arrays).
 >
 > What keeps the disclaimer in force: the base failure rates are
-> **assumed**, because no foundry FIT data exists for this design; the
-> FMEDA's QSPI-loader row is argued rather than swept (LFM 87.22 % if
-> the argument is discarded — a directed loader sweep is the open
-> measurement); there is no mission profile, no common-cause analysis
+> **assumed**, because no foundry FIT data exists for this design;
+> there is no mission profile, no common-cause analysis
 > for the lockstep pair, and no safety-case owner. O8 is met on the
 > final `chip2b` netlist (2026-09-14) and the FMEDA's populations are
 > counted from it. **No claim of compliance with ISO 26262, IEC 61508
@@ -159,13 +156,25 @@ entirely the list below, not a missing objective.
 
 * The FMEDA exists ([fmeda.md](fmeda.md), computed on this variant's
   campaigns, populations refreshed from the final `chip2b` netlist
-  2026-09-13): SPFM 99.51 %, LFM 93.45 %, residual 1.20 FIT — **under
-  assumed failure rates**. The gap that remains is the data, not the
-  analysis: foundry FIT figures, a mission profile, and common-cause
-  analysis for the lockstep pair, per the handoff checklist in that
-  document — plus one measurement, a directed fault sweep of the QSPI
-  loader, whose row is currently argued and alone can move LFM across
-  the ASIL D line (87.22 % with the argument discarded).
+  2026-09-18): SPFM 99.52 %, LFM 93.63 %, residual 1.18 FIT — **under
+  assumed failure rates**, every row measured. The gap that remains is
+  the data, not the analysis: foundry FIT figures, a mission profile,
+  and common-cause analysis for the lockstep pair, per the handoff
+  checklist in that document.
+* **A boot-time gap the loader sweep found, which is a design matter
+  rather than a metric one (finding 22).** SM13's CRC32 protects the
+  SPI byte stream, not the path between the byte it checked and the
+  word it writes. An upset in the write pointer, the segment length,
+  the byte-to-word assembly or the bus holding registers during the
+  3 427-cycle load delivers an image that is not the one in flash,
+  with `boot_done` raised and nothing reported: 168 of 1 274 upsets
+  landing in that window (13.2 %). It does not move the mission-time
+  metrics — the loader is parked behind `boot_done` and 648 of 652
+  mission-window upsets are provably inert — but an integrator who
+  relies on SM13 to guarantee the image should know that it guarantees
+  the *transfer*, not the *storage*. A read-back verify pass, or a CRC
+  over what is written, closes it; both are RTL changes to a
+  signed-off netlist.
 * **Diagnostic latency is measured per campaign on this variant**
   (`build/fi_campaign*.txt`): median 2 cycles over the detected runs of
   the trap and memory workloads, with the slow tail owned by memory ECC

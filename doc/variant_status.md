@@ -592,16 +592,22 @@ record.
    RTL and were re-measured closed (E2E byte enables 10 SDCs → 0;
    PMP arrays 90.8 % latent → 448/448 detected at 2 cycles). The
    FMEDA ([fmeda.md](fmeda.md), refreshed 2026-09-13): **SPFM
-   99.51 %, LFM 93.45 %, residual 1.20 FIT** — both past the ASIL D
+   99.52 %, LFM 93.63 %, residual 1.18 FIT** — both past the ASIL D
    thresholds *on assumed base rates*, populations now re-read from
    the final `chip2b` netlist (item 8: 7 538 placed flops, every block
    placed, nothing RTL-elaborated; `scripts/fmeda.py --netlist`
    re-derives the table and fails on drift). The 2026-09-02 edition
    (SPFM 99.50 / LFM 92.66 / 1.22 FIT) counted the v2full netlist plus
    RTL stand-ins for the blocks that post-dated it. What the refresh
-   left open: the QSPI loader row (534 flops) is argued, not swept —
-   with the argument discarded LFM falls to 87.22 %, below ASIL D — so
-   a directed loader sweep is the next measurement, not a formality.
+   left open — the QSPI loader row (534 flops) argued rather than
+   swept — was closed on 2026-09-18 by `make fi-loader` (finding 22):
+   1 956 upsets over every bit of all 16 loader registers, verdicts
+   taken on the image delivered. The row is measured now and no
+   reading of it fails ASIL D, where the argued row's worst case had
+   been LFM 87.22 %. The sweep did find a real gap: the CRC32 covers
+   the byte stream and not the write path, so 13.2 % of upsets during
+   the load deliver a silently wrong image. That is an architectural
+   finding for the next revision, not a mission-time metric.
 
    The coverage machinery that made the numbers honest (2026-09-01
    pass): line was 95.8 % measured (568 of 593) with **25 reviewed

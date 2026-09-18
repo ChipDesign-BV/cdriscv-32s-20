@@ -226,7 +226,7 @@ ELEMENTS = [
      "silent-ok, core untouched.  The residual 10 % covers wrong "
      "OBSERVATIONS handed to a debugger; nothing here can corrupt the "
      "mission, which is why safe is 0.90 and dc_seu is honestly 0"),
-    ("QSPI boot loader",       534, 0.85, 0.90,  0.90,  0.90,
+    ("QSPI boot loader",       534, 0.99, 0.90,  0.90,  0.90,
      "NOT SWEPT by any campaign -- argued figures (two digits).  "
      "Active only from cold reset to boot_done, then a dormant bus "
      "slave parked off the data-master mux; its state is rebuilt from "
@@ -459,16 +459,20 @@ the stated assumptions, with the caveats of section 1.
   after, so the arm is **gone from the netlist these populations
   count** -- the core-pair row no longer carries any structurally dead
   state, only the campaigns' masked/overwritten share.
-* **QSPI boot loader** ({ff_boot} flops, new row): **no campaign
-  swept it**; its figures are argued, two-digit ones. It is a
-  cold-reset-only bus master parked behind `boot_done` in mission, so
-  a mission-time upset in it is safe unless it flips `boot_done` /
-  `boot_fault`, which stalls the fetch enable (fail-stop). During the
-  load, header validation before any write and one CRC32 over both
-  payloads make a corrupted beat a retry and, after `BootRetryMax`, a
-  sticky `boot_fault` with the core never released. The residual is an
-  address register upset after validation, which lands a CRC-correct
-  payload at the wrong offset -- a candidate for a directed sweep.
+* **QSPI boot loader** ({ff_boot} flops): **swept** (finding 22,
+  `make fi-loader`: 1 956 upsets over every bit of all 16 loader
+  registers, 4 inside the load and 2 after `boot_done` per bit,
+  classified by the IMAGE the loader delivered rather than by the exit
+  code). The row's figures are the **mission window**, which is what
+  this rate describes: the loader is a cold-reset-only bus master
+  parked behind `boot_done`, and of 652 upsets landing after boot
+  **648 were provably inert, 4 were not, and all 4 were detected or
+  fail-stop** -- structurally, only the two sticky flags are still
+  live, and flipping `boot_fault` raises `err_pin` while flipping
+  `boot_done` stalls the fetch enable. Hence safe 0.99, measured.
+  **The load window is a different story and section 5 carries it:**
+  13.2 % of upsets during the 3 427-cycle load deliver a silently
+  wrong image.
 
 ## 4. Where the residual lives
 
@@ -484,16 +488,38 @@ to the safety case.
 
 The metrics are ratios, insensitive to the absolute FIT scale. They are
 sensitive to: the MBU fraction (2 % assumed), the mtime safe
-fraction (workload dependent), the unattributed-flop dc (0.90
-assigned, deliberately below the named-row average), and -- since the
-`chip2b` refresh -- the **QSPI boot loader row**, {ff_boot} flops
-carried on an argument (safe 0.85, dc 0.90). Re-computed with that
-row at the unattributed row's figures (safe 0.10, dc 0.90) the result
-is SPFM {s_spfm_a:.2f} %, LFM {s_lfm_a:.2f} %; with the argument
-discarded entirely (safe 0.00, dc 0.50) it is SPFM {s_spfm_b:.2f} %,
-**LFM {s_lfm_b:.2f} %** -- below the ASIL D line. The loader is the one
-row whose figures can move a metric across a threshold, which is the
-case for a directed sweep of it before the safety case. The PMP arrays
+fraction (workload dependent) and the unattributed-flop dc (0.90
+assigned, deliberately below the named-row average).
+
+**The loader row is no longer on that list** (finding 22). It used to
+be the one row whose figures could move a metric across a threshold:
+carried on an argument at safe 0.85 / dc 0.90, and at safe 0.00 /
+dc 0.50 it put LFM at 87.22 %, below the ASIL D line. It is measured
+now, and the measurement brackets it from both ends. At the row's
+mission-window figures (safe 0.99, dc 0.90) the headline above holds.
+Charging the **whole** campaign to this row instead -- every upset of
+the load window included, safe 0.847 and dc 0.414 as measured over all
+1 926 injections -- gives SPFM {s_spfm_b:.2f} %, **LFM
+{s_lfm_b:.2f} %**: still above ASIL D. There is no longer a reading of
+this row that fails the thresholds, which is what the sweep was for.
+
+What the sweep DID find is not a metric problem but an architectural
+one, and it is written up as finding 22: **the CRC32 protects the SPI
+byte stream, not the write path.** 168 of 1 274 upsets landing during
+the load (13.2 %) end with `boot_done` raised, `err_pin` low, the
+program running to a clean exit -- and an image that is not the one in
+flash. They are concentrated exactly where the unprotected path is:
+`cur_addr_q` the write pointer (25), `seg_left_q` the segment length
+(78, the run is short or long by whole words), `word_q` the byte-to-
+word assembly (25) and the bus-side holding registers (7). A bit
+flipped in the running CRC, by contrast, is caught every time -- 192
+of 192 upsets in `crc_q` end in a correct image, because the check
+fails, the loader retries and re-delivers. The mechanism works; it
+just does not cover everything between the byte it checked and the
+word it wrote. A read-back verify pass, or a CRC taken over what is
+written rather than over what arrives, closes it. That is an RTL
+change to a signed-off netlist and belongs to whoever owns the next
+revision. The PMP arrays
 left this list on 2026-09-02: the parity extension over
 pmpcfg/pmpaddr (a `cfg_parity` instance on each core's fold, ~70
 gates) measured 448/448 detected independent of region usage, so the
@@ -509,10 +535,10 @@ rest on a directed measurement rather than a workload profile.
    every block placed, nothing RTL-counted) and this script re-run;
    `--netlist` re-derives the table from the netlist and fails on
    drift, and the row sum is asserted against the placed count. What
-   the refresh left behind: the QSPI boot loader row rests on an
-   argument, not a sweep (section 3), and the CLINT's mtimecmp/msip
-   registers have no named Q-net in this netlist and sit in the
-   unattributed row.
+   the refresh left behind: the CLINT's mtimecmp/msip registers have
+   no named Q-net in this netlist and sit in the unattributed row.
+   The loader row, the other thing it left behind, was swept on
+   2026-09-18 (finding 22) and is measured.
 3. The PMP story is decided in RTL: parity over the arrays
    (2026-09-02, measured 448/448) -- credit it as a measured
    mechanism.
@@ -612,7 +638,9 @@ def main():
     if args.md:
         boot = "QSPI boot loader"
         sens_a = compute({boot: (0.10, 0.90, 0.90, 0.90)})
-        sens_b = compute({boot: (0.00, 0.50, 0.50, 0.50)})
+        # the pessimistic bracket is now a measurement, not a guess:
+        # the whole campaign, load window included, charged to this row
+        sens_b = compute({boot: (0.847, 0.414, 0.414, 0.414)})
         doc = DOC_TEMPLATE.format(
             date=DATE, netlist=NETLIST,
             ff_netlist=TOTAL_FF_NETLIST, sram_bits=SRAM_BITS,

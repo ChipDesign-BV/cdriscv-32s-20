@@ -36,7 +36,7 @@ OBJDUMP    := $(CROSS)objdump
 ARCH       := rv32imc_zba_zbb_zbs_zicsr_zifencei_zcb_zcmp
 ABI        := ilp32
 
-.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean fpga-synth bootsim bootsim-fault block block-20 block-alu block-qspi block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-decompress formal-lsu formal-safety coverage fi fi-random fi-sweep fi-arith fi-trap fi-mem fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
+.PHONY: pmp zcmp all lint lint-tb sim sw synth ecc clean fpga-synth bootsim bootsim-fault block block-20 block-alu block-qspi block-alu-bitmanip block-mult block-pmp block-e2e block-e2e-link block-clint block-jtag block-dbg block-decompress block-zcmp block-if-align block-decoder-equiv block-csr-equiv block-ecc block-multdiv block-tcm block-if-equiv safety safety-sw safety-bench periph reaction trap ams regwalk formal formal-if formal-ecc formal-bus formal-dec formal-decompress formal-lsu formal-safety coverage fi fi-random fi-sweep fi-arith fi-trap fi-mem fi-e2e fi-loader fi-clint fi-pmp fi-zcmp fi-dbg fi-check cosim cosim-iverilog cosim-stall cosim-random
 
 all: lint
 
@@ -1363,7 +1363,7 @@ $(BUILD)/tb_fi.vvp: $(RTL) verif/fi/tb_fi.sv | $(BUILD)
 # ceiling (finding 20).  FI_RUNS sizes only the random half; the sweeps
 # are fixed-size (400/435/448/248/64 upsets).
 fi-random: fi-arith fi-trap fi-mem fi-check
-fi-sweep:  fi-e2e fi-clint fi-pmp fi-zcmp fi-dbg
+fi-sweep:  fi-e2e fi-loader fi-clint fi-pmp fi-zcmp fi-dbg
 fi: fi-random fi-sweep
 
 # --golden-cfg is the safety configuration signature from a fault-free
@@ -1419,6 +1419,21 @@ fi-mem: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
 # ZERO SDC, with the be injections in the detected column.  The I-TCM
 # write link is not separately swept: no workload writes code, and the
 # slave-side endpoint is the same module proven by block-e2e-link.
+# The QSPI boot loader (finding 22).  tb_fi builds the subsystem with
+# BootEnable=0 -- the loader is not elaborated there at all -- so this
+# campaign needs its own bench: the boot bench with the flash model, plus
+# an upset in one loader register and a verdict taken on the IMAGE the
+# loader delivered rather than on the exit code.  Every bit of all 16
+# loader registers, four times inside the load and twice after boot_done.
+$(BUILD)/tb_fi_boot.vvp: $(RTL) verif/models/spi_norflash_model.sv \
+                         verif/fi/tb_fi_boot.sv | $(BUILD)
+	$(IVERILOG) -g2012 -o $@ -s tb_fi_boot $(RTL) \
+	  verif/models/spi_norflash_model.sv verif/fi/tb_fi_boot.sv
+
+fi-loader: $(BUILD)/tb_fi_boot.vvp $(BUILD)/boot_flash_quad.hex
+	$(PYTHON) scripts/fi_boot_campaign.py --seed $(FI_SEED) \
+	  | tee $(BUILD)/fi_campaign_boot.txt
+
 fi-e2e: $(BUILD)/tb_fi.vvp $(BUILD)/fi_workload_mem.hex $(BUILD)/dtcm_zero.hex
 	$(PYTHON) scripts/fi_campaign.py --seed $(FI_SEED) \
 	  --hex $(BUILD)/fi_workload_mem.hex --golden 02576cb6 \

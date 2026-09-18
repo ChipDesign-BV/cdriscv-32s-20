@@ -15,7 +15,7 @@
 > co-simulated instructions against the final revision `2ecf4b2`, line
 > 96.0 % / 100 % waived, toggle 96.1 %, functional 92 of 92 (2026-09-13
 > re-baseline with the loader in the tree), eight
-> fault-injection campaigns, and an FMEDA (SPFM 99.51 % / LFM 93.45 %
+> fault-injection campaigns, and an FMEDA (SPFM 99.52 % / LFM 93.63 %
 > on assumed rates, populations from the final `chip2b` netlist,
 > [fmeda.md](fmeda.md)). The physical implementation
 > is timing-closed at chip level ([chip.md](chip.md)), and **O8 is met

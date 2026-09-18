@@ -1217,7 +1217,9 @@ argument **discarded** (safe 0, dc 0.50) it is SPFM 99.27 / **LFM
 move a metric across a threshold, which makes a directed loader sweep
 (the residual to look for: an address-register upset *after*
 validation, landing a CRC-correct payload at the wrong offset) the
-next measurement rather than a formality. Also left where the netlist
+next measurement rather than a formality. **(Closed 2026-09-18 by
+finding 22: it was swept, the mission-time half of the argument held
+and the load-time half did not.)** Also left where the netlist
 put it: the CLINT's `mtimecmp`/`msip` registers have no named Q-net
 after synthesis and sit in the unattributed row.
 
@@ -1314,3 +1316,98 @@ longest job falls from 5 h 13 min (313 of 360, finding 20's closure) to
 3 h 27 min, and a red shard no longer hides the other. `gate level and
 timing` 11 min, formal 1 h 25 min with `formal-decompress` in it,
 coverage 5.5 min with the three boot benches.
+
+## 22. The loader row was argued; the sweep says the argument was half right (2026-09-18)
+
+Finding 21 left one row of the FMEDA carried on an argument rather than
+a measurement: the QSPI boot loader, 534 flip-flops, safe 0.85 and
+diagnostic coverage 0.90 assigned from a reading of the RTL. It was
+flagged because it was the only row whose figures could move a metric
+across a threshold — discard the argument entirely and LFM went to
+87.22 %, below the ASIL D line. `make fi-loader` measures it.
+
+**Why it needed a bench of its own.** `tb_fi` builds the subsystem with
+`BootEnable=0`; the loader is not elaborated there at all, which is
+exactly why no campaign had ever swept it. `verif/fi/tb_fi_boot.sv` is
+generated from `tb/tb_cdriscv_boot.sv` — same DUT, same flash model,
+same pad wiring, so the loader is exercised as `make bootsim` exercises
+it — plus a single-cycle upset in one loader register and a verdict
+that can tell a wrong image from a reported failure. 1 956 upsets: every
+bit of all sixteen loader registers, four times inside the 3 427-cycle
+load and twice after `boot_done`.
+
+**Two things the bench got wrong first, both of which would have
+produced a confident wrong answer.**
+
+*The injector silently did nothing half the time.* Arming on the
+bench's own `cycle` counter — incremented with `cycle++` from an
+initial-forever — made the arming block observe only ODD values, so
+every injection scheduled on an even cycle never landed and was
+counted "not injected": 792 of 1 304 runs in the first campaign, an
+exact 50 % that looked like a plausible statistic rather than a bug.
+This is the failure mode `tb_fi`'s own header warns about in variant 1
+("a fault injector that silently does nothing is the worst possible
+outcome, because the campaign then reports perfect coverage"), met
+from the other side. The arming counter is local and non-blocking now.
+
+*The verdict measured the wrong thing.* The first version hashed the
+write BEATS as they went past. That made a **retry look like a
+corruption**: flip a bit of the running CRC, the check fails, the
+loader re-reads and re-delivers, the beat count goes from 158 to 320
+or 434 — and the hash differs while the image is perfect. It reported
+128 silent corruptions in `crc_q` alone, all of them the mechanism
+working correctly. The bench now keeps a shadow of the memory, last
+write wins, and hashes that in address order at `boot_done`: a retry
+is invisible, a word delivered to the wrong address is not. With that
+fix `crc_q` reports 192 of 192 upsets safe.
+
+**The result.**
+
+| class | during the load (1 274) | after boot_done (652) |
+|---|---|---|
+| safe | 983 (77.2 %) | 648 (99.4 %) |
+| detected (`boot_fault`, `err_pin`, safety status) | 76 | 2 |
+| fail-stop (core never released) | 42 | 2 |
+| crashed (wrong image, program did not finish) | 5 | 0 |
+| **silent data corruption** | **168 (13.2 %)** | **0** |
+
+*The mission-time half of the argument holds, and is now measured.*
+The loader is a cold-reset-only bus master parked behind `boot_done`;
+of 652 upsets landing after the image is in place, 648 were provably
+inert and all four that were not ended detected or fail-stop. Only the
+two sticky flags are still live, and both fail safe: `boot_fault`
+raises `err_pin`, `boot_done` low stalls the fetch enable. The row's
+figures become safe **0.99** measured, dc 0.90 kept.
+
+*The load-time half does not hold.* **SM13's CRC32 protects the SPI
+byte stream, not the write path.** Everything between the byte the CRC
+checked and the word that reaches the TCM is unprotected, and an upset
+there delivers an image that is not the one in flash with `boot_done`
+raised, `err_pin` low and the program running to a clean exit. The 168
+silent corruptions land exactly where that gap is: `cur_addr_q`, the
+write pointer (25 — the residual the original argument itself named);
+`seg_left_q`, the segment length (78 — the payload ends up short or
+long by whole words); `word_q`, the byte-to-word assembly (25); and
+the bus-side holding registers `wr_data_q` / `wr_addr_q` (7). Nothing
+in the loader re-reads what it wrote.
+
+**What this does and does not change.** It does not move the
+mission-time metrics: the FMEDA's λ for this row is the mission-time
+upset rate, the boot window is 3 427 cycles once per power-up, and the
+mission-window measurement is what the row now carries — **SPFM
+99.52 %, LFM 93.63 %, residual 1.18 FIT**. And the row is no longer
+able to fail the thresholds under any reading: charge the *whole*
+campaign to it, load window included (safe 0.847, dc 0.414, both
+measured over all 1 926 injections), and the result is SPFM 99.50 %,
+LFM 93.28 % — still above ASIL D, where the argued row's worst case
+had been 87.22 %. That is what the sweep was for.
+
+What it does change is a design claim. An integrator reading SM13 as
+"the loader guarantees the image" is reading it wrong: it guarantees
+the **transfer**, not the **storage**. Closing that is an RTL change —
+a read-back verify pass over the written words, or a CRC taken over
+what is written rather than over what arrives — to a netlist that is
+signed off (`chip2b`), so it re-opens the harden exactly as E2E
+re-opened variant 1's V52. It is recorded here and in the safety
+manual for the owner of the next revision to decide; nothing was
+changed in the RTL for it.
